@@ -1,4 +1,5 @@
-# <img src="./img/logo.svg"> DOCS API
+# <img src="./img/logo.svg"> <span style="color:#0066dc"> DOCS API </span>
+
 ![PyPI - Version](https://img.shields.io/pypi/v/sgnl-api) [![Telegram chat](https://img.shields.io/badge/Просто_о_BIM-join-blue?logo=telegram)](https://t.me/prostobim)
 ## Обертка над API Signal 
 Официальная документация [https://api.sgnl.pro/openapi/swagger/index.html](https://api.sgnl.pro/openapi/swagger/index.html)
