@@ -8,7 +8,7 @@ setup(
     version='0.0.1',
     author='Igor Gritsyuk',
     author_email='gritsyuk.igor@gmail.com',
-    description='Asynchronous python wrapper over sgnl.pro API',
+    description='Asynchronous python wrapper over API sgnl.pro',
     download_url='https://github.com/gritsyuk/sgnl-api/archive/refs/heads/develop.zip',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -24,5 +24,5 @@ setup(
     project_urls={
         'GitHub': 'https://github.com/gritsyuk/sgnl-api'
     },
-    python_requires='>=3.6'
+    python_requires='>=3.9'
 )

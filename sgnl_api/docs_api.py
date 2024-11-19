@@ -288,6 +288,10 @@ class DocsApi:
                 headers=self.api._get_headers()
             )
 
+        @extract_key_from_response(key='rootFolderId')
+        async def root_folder_id(self, project_id: UUID) -> dict:
+            return await self.root_folder(project_id)
+
         async def get_list(
                 self,
                 take: int = 100,
@@ -484,4 +488,3 @@ class DocsApi:
             result_status = await self.commit_uploading(project_id, object_upload.get("objectId"))
 
             return result_status
-
