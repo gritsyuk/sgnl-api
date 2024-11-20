@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='sgnl-api',
-    version='0.0.1',
+    version='0.0.2',
     author='Igor Gritsyuk',
     author_email='gritsyuk.igor@gmail.com',
     description='Asynchronous python wrapper over API sgnl.pro',
