@@ -140,6 +140,14 @@ class DocsApi:
                 take: int = 100,
                 skip: int = 0
         ) -> list[dict]:
+            """
+            Required scopes: docs:item:list
+            :param folder_id: UUID of the folder
+            :param deleted: If true, returns deleted items
+            :param take: Number of items to return
+            :param skip: Number of items to skip
+            :return: Returns a folder`s not nested items list.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/items',
@@ -158,6 +166,12 @@ class DocsApi:
                 folder_id: UUID,
                 deleted: bool = False
         ) -> int:
+            """
+            Required scopes: docs:item:list
+            :param folder_id: UUID of the folder
+            :param deleted: If true, returns deleted items
+            :return: Returns a count items in folder`s not nested items list.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/items/count',
@@ -168,31 +182,21 @@ class DocsApi:
                 headers=self.api._get_headers()
             )
 
-        async def download_link(
-                self,
-                folder_id: UUID,
-                version_id: UUID,
-                file_name: str = None
-        ):
-            params = {
-                'folderId': folder_id,
-                'versionId': version_id
-            }
-            if file_name:
-                params['fileName'] = file_name
-            return await self.api._make_request(
-                method='GET',
-                url=f'{self.api.base_url}/items/download',
-                params=params,
-                headers=self.api._get_headers()
-            )
-
-        async def create(
+        @extract_key_from_response(key='data')
+        async def create_file(
                 self,
                 name: str,
                 folder_id: UUID,
                 version_id: UUID
-        ) -> dict:
+        ) -> UUID:
+            """
+            Creates a new File item with a version and attaches it to the item. Returns the id of the created item.
+            Required scopes: docs:item:create
+            :param name: Name of item to create
+            :param folder_id: UUID of the folder
+            :param version_id: UUID of the version
+            :return: UUID of the created item
+            """
             return await self.api._make_request(
                 method='PUT',
                 url=f'{self.api.base_url}/items/file',
@@ -204,12 +208,21 @@ class DocsApi:
                 headers=self.api._get_headers()
             )
 
+        @extract_key_from_response(key='data')
         async def create_link(
                 self,
                 name: str,
                 folder_id: UUID,
                 version_id: UUID
-        ) -> dict:
+        ) -> UUID:
+            """
+            Creates a new Link item. Returns the id of the created item.
+            Required scopes: docs:item:create
+            :param name:
+            :param folder_id:
+            :param version_id:
+            :return: UUID of the created link.
+            """
             return await self.api._make_request(
                 method='PUT',
                 url=f'{self.api.base_url}/items/link',
@@ -221,16 +234,49 @@ class DocsApi:
                 headers=self.api._get_headers()
             )
 
-        async def new_version(
+        async def get_link(
+                self,
+                item_id: UUID,
+                version_id: UUID,
+                file_name: str = None
+        ) -> dict:
+            """
+            Required scopes: docs:item:read.
+            :param item_id: Item UUID
+            :param version_id: Version UUID
+            :param file_name: ...
+            :return: Returns S3 download link
+            """
+            params = {
+                'itemId': item_id,
+                'versionId': version_id
+            }
+            if file_name:
+                params['fileName'] = file_name
+            return await self.api._make_request(
+                method='GET',
+                url=f'{self.api.base_url}/items/download',
+                params=params,
+                headers=self.api._get_headers()
+            )
+
+        async def add_version(
                 self,
                 item_id: UUID,
                 version_id: UUID
-        ) -> dict:
+        ) -> None:
+            """
+            Attaches a version to an existing item.
+            Required scopes: docs:version:create
+            :param item_id:
+            :param version_id:
+            :return: None
+            """
             return await self.api._make_request(
                 method='PUT',
                 url=f'{self.api.base_url}/items/versions',
                 json={
-                    'folderId': item_id,
+                    'itemId': item_id,
                     'versionId': version_id
                 },
                 headers=self.api._get_headers()
@@ -245,6 +291,12 @@ class DocsApi:
                 folder_id: UUID,
                 deleted: bool = False
         ) -> list[dict]:
+            """
+            Required scopes: docs:folder:list
+            :param folder_id: UUID of the folder
+            :param deleted: If true, returns deleted items
+            :return: Returns a list of folder`s children.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/folders/{folder_id}/children',
@@ -254,11 +306,19 @@ class DocsApi:
                 headers=self.api._get_headers()
             )
 
+        @extract_key_from_response(key='data')
         async def create(
                 self,
                 parent_id: UUID,
                 name: str = 'new folder from api'
-        ) -> dict:
+        ) -> UUID:
+            """
+            Creates a new folder.
+            Required scopes: docs:folder:create
+            :param parent_id: UUID of the parent folder
+            :param name: Name of the folder
+            :return: UUID of the created folder.
+            """
             return await self.api._make_request(
                 method='PUT',
                 url=f'{self.api.base_url}/folders',
@@ -269,11 +329,18 @@ class DocsApi:
                 headers=self.api._get_headers()
             )
 
-        async def update(
+        async def rename(
                 self,
                 folder_id: UUID,
                 name: str
-        ) -> dict:
+        ) -> None:
+            """
+            Updates a folder - rename
+            Required scopes: docs:folder:update
+            :param folder_id: UUID of the folder
+            :param name: New name of the folder
+            :return: None
+            """
             return await self.api._make_request(
                 method='PATCH',
                 url=f'{self.api.base_url}/folders',
@@ -288,9 +355,12 @@ class DocsApi:
         def __init__(self, api: 'DocsApi'):
             self.api = api
 
-        async def root_folder(
-                self,
-                project_id: UUID) -> dict:
+        async def root_folder(self, project_id: UUID) -> dict:
+            """
+            Required scopes: project:read
+            :param project_id: UUID of the project
+            :return: Returns information about a project in Docs.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/docs/projects/{project_id}',
@@ -298,7 +368,12 @@ class DocsApi:
             )
 
         @extract_key_from_response(key='root_folder_id')
-        async def root_folder_id(self, project_id: UUID) -> dict:
+        async def root_folder_id(self, project_id: UUID) -> UUID:
+            """
+            Required scopes: project:read
+            :param project_id: UUID of the project
+            :return:  Returns root folder UUID of the project.
+            """
             return await self.root_folder(project_id)
 
         async def get_list(
@@ -306,6 +381,12 @@ class DocsApi:
                 take: int = 100,
                 skip: int = 0
         ) -> list[dict]:
+            """
+            Required scopes: project:list
+            :param take: The number of items to return. Default value is 100. Maximum value is 200.
+            :param skip: The number of items to skip. Default value is 0.
+            :return: Returns a list of projects.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/projects',
@@ -320,6 +401,11 @@ class DocsApi:
                 self,
                 project_id: UUID
         ) -> dict:
+            """
+            Required scopes: project:read
+            :param project_id: UUID of the project
+            :return: Returns information about a project in Docs.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/projects/{project_id}',
@@ -332,6 +418,13 @@ class DocsApi:
                 take: int = 100,
                 skip: int = 0
         ) -> list[dict]:
+            """
+            Required scopes: project:user:list
+            :param project_id: Project UUID
+            :param take: The number of items to return. Default value is 100. Maximum value is 200
+            :param skip: The number of items to skip. Default value is 0.
+            :return: Returns a list of users associated with a given project.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/projects/{project_id}/users',
@@ -348,6 +441,13 @@ class DocsApi:
                 take: int = 100,
                 skip: int = 0
         ) -> list[dict]:
+            """
+            Required scopes: project:role:list.
+            :param project_id: Project UUID
+            :param take: The number of items to return. Default value is 100. Maximum value is 200
+            :param skip: The number of items to skip. Default value is 0
+            :return: Returns a list of roles associated with a given project.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/projects/{project_id}/roles',
@@ -358,11 +458,18 @@ class DocsApi:
                 headers=self.api._get_headers()
             )
 
+        @extract_key_from_response(key='roles')
         async def users_permissions(
                 self,
                 project_id: UUID,
                 user_id: UUID
-        ) -> dict:
+        ) -> list[str]:
+            """
+            Required scopes: project:user:read
+            :param project_id: Project UUID
+            :param user_id: User UUID
+            :return: Returns information about a specific user's permissions in a project.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/projects/{project_id}/users/{user_id}/permission',
@@ -374,6 +481,12 @@ class DocsApi:
             self.api = api
 
         async def users_list(self, take: int = 100, skip: int = 0) -> list[dict]:
+            """
+            Required scopes: company:user:list
+            :param take: The number of items to return. Default value is 100. Maximum value is 200.
+            :param skip: The number of items to skip. Default value is 0.
+            :return: Returns a list of users associated with a company.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/company/users',
@@ -385,6 +498,12 @@ class DocsApi:
             )
 
         async def roles_list(self, take: int = 100, skip: int = 0) -> list[dict]:
+            """
+            Required scopes: company:role:list
+            :param take: The number of items to return. Default value is 100. Maximum value is 200.
+            :param skip: The number of items to skip. Default value is 0.
+            :return: Returns a list of roles associated with a company.
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/company/roles',
@@ -399,12 +518,20 @@ class DocsApi:
         def __init__(self, api: 'DocsApi'):
             self.api = api
 
-        async def list(
+        async def get_list(
                 self,
                 item_id: UUID,
                 take: int = 100,
                 skip: int = 0
         ) -> list[dict]:
+            """
+            Returns a list of versions of item
+            Required scopes: docs:version:list
+            :param item_id: Item UUID
+            :param take: The number of items to return. Default value is 100. Maximum value is 200.
+            :param skip: The number of items to skip. Default value is 0.
+            :return: list of versions of item
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/versions',
@@ -420,7 +547,13 @@ class DocsApi:
         async def count(
                 self,
                 item_id: UUID
-        ) -> dict:
+        ) -> int:
+            """
+            Returns the count of item`s versions.
+            Required scopes: docs:version:list
+            :param item_id: Item UUID
+            :return: count items
+            """
             return await self.api._make_request(
                 method='GET',
                 url=f'{self.api.base_url}/versions',
@@ -430,13 +563,22 @@ class DocsApi:
                 headers=self.api._get_headers()
             )
 
-        async def new(
+        @extract_key_from_response(key="data")
+        async def create(
                 self,
                 *,
                 object_id: UUID,
                 project_id: UUID,
                 name: str
-        ) -> dict:
+        ) -> UUID:
+            """
+            Creates a new version of an object. Returns the id of the created version.
+            Required scopes: docs:version:create
+            :param object_id: UUID of the object
+            :param project_id: UUID of the project
+            :param name: ...
+            :return: UUID of the created version
+            """
             return await self.api._make_request(
                 method='POST',
                 url=f'{self.api.base_url}/versions',
@@ -458,6 +600,14 @@ class DocsApi:
                 mime_type: str,
                 size: int
         ) -> dict:
+            """
+            Returns the object upload ticket. Each object must be committed.
+            Required scopes: docs:object:create
+            :param project_id: UUID of the project
+            :param mime_type: mime type of the file
+            :param size: file size in bytes
+            :return: dict: Object upload ticket
+            """
             return await self.api._make_request(
                 method='PUT',
                 url=f'{self.api.base_url}/objects',
@@ -472,7 +622,13 @@ class DocsApi:
         async def commit_uploading(
                 self,
                 object_id: UUID
-        ) -> dict:
+        ) -> None:
+            """
+            Commiting object upload after put it in S3.
+            Required scopes: docs:object:create
+            :param object_id: UUID S3 object
+            :return: None
+            """
             return await self.api._make_request(
                 method='POST',
                 url=f'{self.api.base_url}/objects/{object_id}/uploading/commit',

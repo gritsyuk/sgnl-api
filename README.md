@@ -35,29 +35,30 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 ## Методы
-| Методы                      | Описание                                |
-|-----------------------------|-----------------------------------------|
-| `Item.get_list`             | Список файлов в директории              |
-| `Item.count`                | Количество файлов в директории          |
-| `Item.download_link`        | Получить ссылку на скачивание           |
-| `Item.create`               | Создать файл                            |
-| `Item.create_link`          | Создать ссылку                          |
-| `Item.new_version`          | Создать новую версию                    |
-| `Folder.get_list`           | Список подкаталогов в каталоге          |
-| `Folder.create`             | Создать каталог                         |          
-| `Folder.update`             | Переименовать каталог                   |
-| `Project.root_folder`       | Данные корневой папки проекта           |
-| `Project.root_folder_id`    | UUID корневой папки                     |
-| `Project.get_list`          | Список проектов                         |
-| `Project.info`              | Информация о проекте                    |
-| `Project.users`             | Список пользователей проекта            |
-| `Project.roles`             | Список ролей проекта                    |
-| `Project.users_permissions` | Права доступа у пользователя на проекте |
-| `Company.users_list`        | Список пользователей компании           |
-| `Company.roles_list`        | Список ролей компании                   |
-| `Version.list`              | Список версий файла                     |
-| `Version.count`             | Количество версий у файла               |
-| `Version.new`               | Новая версия                            |
-| `File.get_object_upload`    | Получение ссылки загрузки и id объекта  |
-| `File.commit_uploading`     | Записать сведения в S3                  |
-| `File.upload`               | Загрузка объекта полный цикл            |
+| Метод                   | Описание                                                         | Возвращает         |
+|-------------------------|-----------------------------------------------------------------|--------------------|
+| `item.get_list`         | Список файлов в директории                                       | `list[dict]`       |
+| `item.count`            | Количество файлов в директории                                   | `int`              |
+| `item.create_file`      | Создает новый файл с версией                                     | `UUID`             |
+| `item.create_link`      | Создает новую ссылку                                             | `UUID`             |
+| `item.get_link`         | Получает ссылку для загрузки файла                               | `dict`             |
+| `item.add_version`      | Добавляет новую версию к существующему файлу                     | `None`             |
+| `folder.get_list`       | Список дочерних папок                                            | `list[dict]`       |
+| `folder.create`         | Создает новую папку                                              | `UUID`             |
+| `folder.rename`         | Переименовывает папку                                            | `None`             |
+| `project.root_folder`   | Информация о корневой папке проекта                              | `dict`             |
+| `project.root_folder_id`| UUID корневой папки проекта                                      | `UUID`             |
+| `project.get_list`      | Список проектов                                                  | `list[dict]`       |
+| `project.info`          | Информация о проекте                                             | `dict`             |
+| `project.users`         | Список пользователей проекта                                     | `list[dict]`       |
+| `project.roles`         | Список ролей проекта                                             | `list[dict]`       |
+| `project.users_permissions` | Список прав пользователя в проекте                          | `list[str]`        |
+| `company.users_list`    | Список пользователей компании                                    | `list[dict]`       |
+| `company.roles_list`    | Список ролей компании                                            | `list[dict]`       |
+| `version.get_list`      | Список версий файла                                              | `list[dict]`       |
+| `version.count`         | Количество версий файла                                          | `int`              |
+| `version.create`        | Создает новую версию объекта                                     | `UUID`             |
+| `file.get_object_upload`| Получает тикет на загрузку объекта                               | `dict`             |
+| `file.commit_uploading` | Завершает загрузку объекта                                       | `None`             |
+| `file.upload`           | Загружает файл                                                   | `dict` или `None`  |
+
