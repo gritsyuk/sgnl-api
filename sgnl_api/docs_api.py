@@ -4,13 +4,12 @@ from datetime import datetime, timedelta
 from .scopes import SCOPES_DEFAULT
 from .decorators import extract_key_from_response
 from .file import read_file
+from .utils import keys_to_snake_case
 
 
 class DocsApi:
     """DocsApi client for interacting with the SGNL DOCS API.
-
     Do not initialize this class directly. Use the create() classmethod instead:
-
     Example:
         ```python
         api = await DocsApi.create(client_id="your_id", client_secret="your_secret")
@@ -44,15 +43,12 @@ class DocsApi:
             client_secret: str,
             scopes: list[str] = SCOPES_DEFAULT) -> "DocsApi":
         """Create and initialize a new DocsApi instance.
-
                Args:
                    client_id: Your SGNL DOCS API client ID
                    client_secret: Your SGNL DOCS API client secret
                    scopes: List of scopes
-
                Returns:
                    An initialized DocsApi instance
-
                Example:
                    ```python
                    api = await DocsApi.create(
@@ -83,10 +79,8 @@ class DocsApi:
                     self._jwt = data.get('token')
                     expires_in = data.get('expiresIn', 3600)
                     self._jwt_expires_at = datetime.now() + timedelta(seconds=expires_in)
-            except httpx.RequestError as e:
-                raise Exception(f"Ошибка запроса: {e}")
-            except httpx.HTTPStatusError as e:
-                raise Exception(f"Ошибка HTTP {e.response.status_code}: {e.response.text}")
+            except Exception as e:
+                raise Exception(f"AUTHENTICATION ERROR: {e}")
 
     async def _make_request(
             self,
@@ -95,21 +89,36 @@ class DocsApi:
             params: dict = None,
             json: dict = None,
             headers: dict = None) -> str:
+
+        error_messages = {
+            400: "Bad request",
+            401: "The request did not have the correct authorization header credentials.",
+            403: "Forbidden",
+            404: "Not Found",
+            450: "Maximum resource quota reached. To increase the quota, contact support.",
+            500: "Api server error"
+        }
+
         try:
             await self._ensure_token()
             async with httpx.AsyncClient() as client:
                 response = await client.request(
-                    method,
-                    url,
+                    method=method,
+                    url=url,
                     params=params,
                     json=json,
                     headers=headers)
-                response.raise_for_status()
-                return response.json()
-        except httpx.RequestError as e:
-            raise Exception(f"Ошибка запроса: {e}")
-        except httpx.HTTPStatusError as e:
-            raise Exception(f"Ошибка HTTP {e.response.status_code}: {e.response.text}")
+
+                if response.is_success:
+                    return keys_to_snake_case(response.json())
+                else:
+                    error_message = error_messages.get(response.status_code, "Неизвестная ошибка")
+                    return {
+                        "error": response.status_code,
+                        "message": error_message
+                    }
+        except Exception as e:
+            raise Exception(f"Error: {e}")
 
     def _get_headers(self, additional_headers: dict = None) -> dict:
         headers = {
@@ -288,7 +297,7 @@ class DocsApi:
                 headers=self.api._get_headers()
             )
 
-        @extract_key_from_response(key='rootFolderId')
+        @extract_key_from_response(key='root_folder_id')
         async def root_folder_id(self, project_id: UUID) -> dict:
             return await self.root_folder(project_id)
 
@@ -478,13 +487,15 @@ class DocsApi:
             object_upload = await self.get_object_upload(project_id, mime_type, size)
             async with httpx.AsyncClient() as client:
                 upload_response = await client.put(
-                    object_upload.get("signedUrl"),
+                    object_upload.get("signed_url"),
                     content=file_data
                 )
-
                 if upload_response.status_code != 200:
-                    raise ConnectionAbortedError
+                    return {
+                        "error": upload_response.status_code,
+                        "message": upload_response.text
+                    }
 
-            result_status = await self.commit_uploading(project_id, object_upload.get("objectId"))
+            result_status = await self.commit_uploading(project_id, object_upload.get("object_id"))
 
             return result_status

@@ -1,4 +1,4 @@
-# <img src="./img/logo.svg"> DOCS API
+# <img src="./img/logo.svg"> SIGNAL API
 
 ![PyPI - Version](https://img.shields.io/pypi/v/sgnl-api) [![Telegram chat](https://img.shields.io/badge/Просто_о_BIM-join-blue?logo=telegram)](https://t.me/prostobim)
 ## Обертка над API Signal 
