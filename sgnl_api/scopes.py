@@ -14,6 +14,5 @@ SCOPES_DEFAULT = (
     "docs:item:list",
     "docs:item:read",
     "docs:version:create",
-    "docs:version:create",
     "docs:version:list"
 )

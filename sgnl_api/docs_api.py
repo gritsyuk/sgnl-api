@@ -638,7 +638,7 @@ class DocsApi:
         async def upload(self, project_id: UUID, file_path: str):
             file_info = await read_file(file_path)
             if file_info is None:
-                raise FileExistsError
+                raise FileNotFoundError
             file_data, mime_type, size = file_info
             object_upload = await self.get_object_upload(project_id, mime_type, size)
             async with httpx.AsyncClient() as client:
@@ -652,6 +652,6 @@ class DocsApi:
                         "message": upload_response.text
                     }
 
-            result_status = await self.commit_uploading(project_id, object_upload.get("object_id"))
+            result_status = await self.commit_uploading(object_upload.get("object_id"))
 
             return result_status
