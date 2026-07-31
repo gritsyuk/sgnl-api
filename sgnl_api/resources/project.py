@@ -120,5 +120,15 @@ class Project:
         """
         return await self._transport.request(
             method='GET',
-            path=f'/projects/{project_id}/users/{user_id}/permission'
+            path=f'/projects/{project_id}/users/{user_id}/permissions'
+        )
+
+    @extract_key_from_response(key='data')
+    async def get_storage_id(self, project_id: UUID) -> UUID:
+        """
+        Retrieves the unique identifier of the storage assigned to a specific project.
+        Required scopes: project:read
+        """
+        return await self._transport.request(
+            method='GET', path='/docs/projects/storage-id', params={'projectId': project_id}
         )

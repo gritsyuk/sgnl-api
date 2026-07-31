@@ -1,4 +1,44 @@
-from .resources import Company, File, Folder, Item, Project, Version
+from .resources import (
+    AcceptanceCertificate,
+    ApplicationUser,
+    Attribute,
+    AttributeType,
+    AttributeValue,
+    CadesSignature,
+    CardPublicLink,
+    Company,
+    CompanyUser,
+    CompanyUserCustomRole,
+    DocumentsTransfer,
+    DocumentsTransferItem,
+    DocumentsTransferType,
+    EmbeddedSignature,
+    File,
+    Folder,
+    FolderItemsNamingPattern,
+    Forge,
+    Issue,
+    IssueAccesses,
+    IssueAttachment,
+    IssueComment,
+    IssueEvents,
+    IssueProjectSettings,
+    IssueType,
+    Item,
+    Mchd,
+    Permissions,
+    Project,
+    ProjectUser,
+    ProjectUserCustomRole,
+    Review,
+    ReviewGroup,
+    ReviewItem,
+    Share,
+    Storage,
+    Tangl,
+    UserLog,
+    Version,
+)
 from .scopes import SCOPES_DEFAULT
 from .transport import DEFAULT_TIMEOUT, Transport
 
@@ -37,6 +77,40 @@ class DocsApi:
         self.company = Company(self._transport)
         self.version = Version(self._transport)
         self.file = File(self._transport)
+
+        self.acceptance_certificate = AcceptanceCertificate(self._transport)
+        self.application_user = ApplicationUser(self._transport)
+        self.attribute = Attribute(self._transport)
+        self.attribute_type = AttributeType(self._transport)
+        self.attribute_value = AttributeValue(self._transport)
+        self.cades_signature = CadesSignature(self._transport)
+        self.card_public_link = CardPublicLink(self._transport)
+        self.company_user = CompanyUser(self._transport)
+        self.company_user_custom_role = CompanyUserCustomRole(self._transport)
+        self.documents_transfer = DocumentsTransfer(self._transport)
+        self.documents_transfer_item = DocumentsTransferItem(self._transport)
+        self.documents_transfer_type = DocumentsTransferType(self._transport)
+        self.embedded_signature = EmbeddedSignature(self._transport)
+        self.folder_items_naming_pattern = FolderItemsNamingPattern(self._transport)
+        self.forge = Forge(self._transport)
+        self.issue = Issue(self._transport)
+        self.issue_accesses = IssueAccesses(self._transport)
+        self.issue_attachment = IssueAttachment(self._transport)
+        self.issue_comment = IssueComment(self._transport)
+        self.issue_events = IssueEvents(self._transport)
+        self.issue_project_settings = IssueProjectSettings(self._transport)
+        self.issue_type = IssueType(self._transport)
+        self.mchd = Mchd(self._transport)
+        self.permissions = Permissions(self._transport)
+        self.project_user = ProjectUser(self._transport)
+        self.project_user_custom_role = ProjectUserCustomRole(self._transport)
+        self.review = Review(self._transport)
+        self.review_group = ReviewGroup(self._transport)
+        self.review_item = ReviewItem(self._transport)
+        self.share = Share(self._transport)
+        self.storage = Storage(self._transport)
+        self.tangl = Tangl(self._transport)
+        self.user_log = UserLog(self._transport)
 
     @classmethod
     async def create(

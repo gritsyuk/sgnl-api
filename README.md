@@ -54,30 +54,167 @@ except SgnlApiError as e:
 Иерархия исключений: `SgnlApiError` (базовое) → `SgnlRequestError` (сетевые ошибки/таймауты), `SgnlAuthenticationError` (401), `SgnlBadRequestError` (400), `SgnlForbiddenError` (403), `SgnlNotFoundError` (404), `SgnlQuotaExceededError` (450), `SgnlServerError` (5xx).
 
 ## Методы
+Обертка покрывает весь официальный API ([swagger](https://api.sgnl.pro/openapi/swagger/index.html)). Методы сгруппированы по ресурсам ровно как в спецификации (по тегам).
+
+### item
 | Метод                   | Описание                                                         | Возвращает         |
-|-------------------------|-----------------------------------------------------------------|--------------------|
-| `item.get_list`         | Список файлов в директории                                       | `list[dict]`       |
-| `item.count`            | Количество файлов в директории                                   | `int`              |
-| `item.create_file`      | Создает новый файл с версией                                     | `UUID`             |
-| `item.create_link`      | Создает новую ссылку                                             | `UUID`             |
-| `item.get_link`         | Получает ссылку для загрузки файла                               | `dict`             |
-| `item.add_version`      | Добавляет новую версию к существующему файлу                     | `None`             |
-| `folder.get_list`       | Список дочерних папок                                            | `list[dict]`       |
-| `folder.create`         | Создает новую папку                                              | `UUID`             |
-| `folder.rename`         | Переименовывает папку                                            | `None`             |
-| `project.root_folder`   | Информация о корневой папке проекта                              | `dict`             |
-| `project.root_folder_id`| UUID корневой папки проекта                                      | `UUID`             |
-| `project.get_list`      | Список проектов                                                  | `list[dict]`       |
-| `project.info`          | Информация о проекте                                             | `dict`             |
-| `project.users`         | Список пользователей проекта                                     | `list[dict]`       |
-| `project.roles`         | Список ролей проекта                                             | `list[dict]`       |
-| `project.users_permissions` | Список прав пользователя в проекте                          | `list[str]`        |
-| `company.users_list`    | Список пользователей компании                                    | `list[dict]`       |
-| `company.roles_list`    | Список ролей компании                                            | `list[dict]`       |
-| `version.get_list`      | Список версий файла                                              | `list[dict]`       |
-| `version.count`         | Количество версий файла                                          | `int`              |
-| `version.create`        | Создает новую версию объекта                                     | `UUID`             |
-| `file.get_object_upload`| Получает тикет на загрузку объекта                               | `dict`             |
-| `file.commit_uploading` | Завершает загрузку объекта                                       | `None`             |
-| `file.upload`           | Загружает файл                                                   | `dict` или `None`  |
+|-------------------------|-------------------------------------------------------------------|--------------------|
+| `item.get_list`         | Список файлов в директории                                        | `list[dict]`       |
+| `item.count`            | Количество файлов в директории                                    | `int`              |
+| `item.search`           | Поиск вложенных элементов в директории                            | `list[dict]`       |
+| `item.create_file`      | Создает новый файл с версией                                      | `UUID`             |
+| `item.create_link`      | Создает новую ссылку                                               | `UUID`             |
+| `item.get_link`         | Получает ссылку для загрузки файла                                | `dict`             |
+| `item.get_item_version` | Возвращает версию элемента по UUID                                | `dict`             |
+| `item.add_version`      | Добавляет новую версию к существующему файлу                      | `None`             |
+| `item.update`           | Обновляет элемент (имя/ссылку)                                    | `None`             |
+| `item.update_version`   | Обновляет комментарий версии элемента                             | `None`             |
+| `item.delete`           | Перемещает элемент в корзину                                      | `None`             |
+
+### folder
+| Метод                   | Описание                                                         | Возвращает         |
+|-------------------------|-------------------------------------------------------------------|--------------------|
+| `folder.get_list`       | Список дочерних папок                                              | `list[dict]`       |
+| `folder.create`         | Создает новую папку                                                 | `UUID`             |
+| `folder.update`         | Обновляет имя и/или цвет папки                                    | `None`             |
+| `folder.rename`         | Переименовывает папку                                              | `None`             |
+| `folder.delete`         | Перемещает папку в корзину                                        | `None`             |
+| `folder.get_project_tree`| Дерево папок проекта с правами пользователя                      | `dict`             |
+
+### project / project_user / project_user_custom_role
+| Метод                   | Описание                                                         | Возвращает         |
+|-------------------------|-------------------------------------------------------------------|--------------------|
+| `project.root_folder`   | Информация о корневой папке проекта                                | `dict`             |
+| `project.root_folder_id`| UUID корневой папки проекта                                        | `UUID`             |
+| `project.get_storage_id`| UUID хранилища, назначенного проекту                               | `UUID`             |
+| `project.get_list`      | Список проектов                                                     | `list[dict]`       |
+| `project.info`          | Информация о проекте                                                | `dict`             |
+| `project.users`         | Список пользователей проекта                                       | `list[dict]`       |
+| `project.roles`         | Список ролей проекта                                                | `list[dict]`       |
+| `project.users_permissions` | Права пользователя в проекте                                   | `list[str]`        |
+| `project_user.add`      | Добавляет пользователей в проекты                                  | `None`             |
+| `project_user.delete`   | Удаляет пользователей из проектов                                  | `None`             |
+| `project_user_custom_role.set` | Назначает кастомные роли пользователю в проекте              | `None`             |
+
+### company / company_user / company_user_custom_role
+| Метод                   | Описание                                                         | Возвращает         |
+|-------------------------|-------------------------------------------------------------------|--------------------|
+| `company.users_list`    | Список пользователей компании                                      | `list[dict]`       |
+| `company.roles_list`    | Список ролей компании                                               | `list[dict]`       |
+| `company_user.get_id_by_telegram_id` | UUID пользователя по Telegram id                       | `UUID`             |
+| `company_user.add`      | Приглашает/добавляет пользователей в компанию                      | `list[dict]`       |
+| `company_user.delete`   | Удаляет пользователей из компании                                  | `None`             |
+| `company_user_custom_role.set` | Назначает кастомные роли пользователю в компании              | `None`             |
+
+### version
+| Метод                   | Описание                                                         | Возвращает         |
+|-------------------------|-------------------------------------------------------------------|--------------------|
+| `version.get_list`      | Список версий файла                                                 | `list[dict]`       |
+| `version.count`         | Количество версий файла                                            | `int`              |
+| `version.find_batch`    | Версии для пакета элементов                                        | `list[dict]`       |
+| `version.create`        | Создает новую версию объекта                                       | `UUID`             |
+
+### file (Object)
+| Метод                   | Описание                                                         | Возвращает         |
+|-------------------------|-------------------------------------------------------------------|--------------------|
+| `file.get_object_upload`| Получает тикет на загрузку объекта                                | `dict`             |
+| `file.commit_uploading` | Завершает загрузку объекта                                        | `None`             |
+| `file.upload`           | Загружает файл целиком (upload + commit)                          | `dict` или `None`  |
+
+### attribute / attribute_type / attribute_value
+| Метод                            | Описание                                              | Возвращает   |
+|-----------------------------------|--------------------------------------------------------|--------------|
+| `attribute.get_list`              | Список атрибутов по фильтру                             | `list[dict]` |
+| `attribute_type.get_list`         | Список типов атрибутов по фильтру                       | `list[dict]` |
+| `attribute_value.list_issues`     | Значения атрибутов замечаний                             | `list[dict]` |
+| `attribute_value.list_items`      | Значения атрибутов элементов                             | `list[dict]` |
+| `attribute_value.list_folders`    | Значения атрибутов папок                                 | `list[dict]` |
+| `attribute_value.set`             | Устанавливает значения атрибутов                         | `None`       |
+
+### issue и связанные (issue_type, issue_accesses, issue_comment, issue_attachment, issue_events, issue_project_settings)
+| Метод                                    | Описание                                          | Возвращает   |
+|--------------------------------------------|------------------------------------------------------|--------------|
+| `issue.get_list`                          | Список замечаний по фильтру                          | `list[dict]` |
+| `issue.update`                            | Пакетное обновление замечаний (до 25 шт.)             | `None`       |
+| `issue.count`                             | Количество замечаний по фильтру                       | `int`        |
+| `issue.item_issues_count`                 | Количество замечаний по элементам                     | `list[dict]` |
+| `issue_type.get_list`                     | Список типов замечаний                                | `list[dict]` |
+| `issue_accesses.get_list`                 | Правила доступа к замечаниям                          | `list[dict]` |
+| `issue_comment.get_list`                  | Список комментариев замечания                         | `list[dict]` |
+| `issue_comment.create`                    | Создает комментарий                                    | `UUID`       |
+| `issue_comment.count`                     | Количество комментариев                                | `int`        |
+| `issue_attachment.get_list`               | Список вложений замечания                              | `list[dict]` |
+| `issue_attachment.download_object`        | Тикет на загрузку вложения                             | `dict`       |
+| `issue_events.get_list`                   | История событий замечания                             | `list[dict]` |
+| `issue_events.count`                      | Количество событий                                     | `int`        |
+| `issue_project_settings.get`              | Настройки замечаний проекта                            | `dict`       |
+
+### review и связанные (review_group, review_item)
+| Метод                                                   | Описание                                     | Возвращает   |
+|------------------------------------------------------------|--------------------------------------------------|--------------|
+| `review.get_list`                                         | Список согласований проекта                       | `list[dict]` |
+| `review.update`                                            | Обновляет основную информацию согласования         | `None`       |
+| `review.count`                                             | Количество согласований                            | `int`        |
+| `review.get_versions`                                      | Версии согласований по id                          | `list[dict]` |
+| `review.find_item_version_ids_by_review_version_ids`       | Версии элементов по версиям согласования           | `dict`       |
+| `review_group.get_list`                                    | Список групп согласований                          | `list[dict]` |
+| `review_item.get_statuses`                                 | Статусы согласования для версий элементов          | `list[dict]` |
+
+### share / storage
+| Метод              | Описание                                    | Возвращает   |
+|---------------------|--------------------------------------------|--------------|
+| `share.get_list`   | Список ссылок общего доступа по фильтру      | `list[dict]` |
+| `share.create`     | Создает ссылку общего доступа                | `UUID`       |
+| `share.update`     | Обновляет ссылку общего доступа              | `None`       |
+| `share.delete`     | Помечает ссылку удаленной/восстановленной    | `None`       |
+| `share.count`      | Количество ссылок по фильтру                 | `int`        |
+| `storage.get_list` | Список хранилищ документов                   | `list[dict]` |
+
+### подписание (cades_signature, embedded_signature, mchd) и card_public_link
+| Метод                                | Описание                                        | Возвращает   |
+|----------------------------------------|------------------------------------------------------|--------------|
+| `cades_signature.get_list`            | Список подписей CAdES версии                          | `list[dict]` |
+| `cades_signature.create`              | Создает подпись CAdES                                  | `None`       |
+| `embedded_signature.get_list`         | Список встроенных подписей элемента                    | `list[dict]` |
+| `embedded_signature.create`           | Создает встроенную подпись                             | `None`       |
+| `mchd.company_documents`              | UUID доверенностей компании                            | `list[UUID]` |
+| `mchd.attached_documents`             | Доверенности, привязанные к подписи                    | `list[dict]` |
+| `mchd.download`                       | Тикет на загрузку доверенности                         | `dict`       |
+| `card_public_link.regenerate`         | Перегенерирует публичную ссылку карточки дашборда       | `dict`       |
+
+### documents_transfer / documents_transfer_item / documents_transfer_type / acceptance_certificate
+| Метод                                          | Описание                                       | Возвращает   |
+|---------------------------------------------------|-----------------------------------------------------|--------------|
+| `documents_transfer.get_list`                     | Список передач документов по фильтру                 | `list[dict]` |
+| `documents_transfer.get`                          | Данные передачи документов по id                     | `dict`       |
+| `documents_transfer.count`                        | Количество передач по фильтру                        | `int`        |
+| `documents_transfer.accesses`                     | Правила доступа для типов передач                    | `list[dict]` |
+| `documents_transfer_item.get_list`                | Список элементов передачи                            | `list[dict]` |
+| `documents_transfer_item.count`                   | Количество элементов передачи                        | `int`        |
+| `documents_transfer_item.download`                | Тикет на загрузку элемента передачи                  | `dict`       |
+| `documents_transfer_type.get_list`                | Список типов передач документов                      | `list[dict]` |
+| `acceptance_certificate.download`                 | Тикет на загрузку акта приема-передачи               | `dict`       |
+
+### permissions / application_user
+| Метод                          | Описание                                        | Возвращает   |
+|----------------------------------|------------------------------------------------------|--------------|
+| `permissions.upsert_batch`      | Устанавливает права пользователей/ролей на папку       | `None`       |
+| `permissions.get_tree`          | Дерево папок проекта с правами                         | `dict`       |
+| `application_user.upsert`       | Назначает роли пользователям в приложениях              | `None`       |
+| `application_user.delete`       | Отзывает доступ пользователей в приложениях             | `None`       |
+
+### forge / tangl / folder_items_naming_pattern
+| Метод                                        | Описание                                    | Возвращает   |
+|-------------------------------------------------|--------------------------------------------------|--------------|
+| `forge.convert`                                | Запускает конвертацию модели через Forge           | `None`       |
+| `forge.get_viewers_data`                       | Токен и URN для Forge Viewer                       | `dict`       |
+| `tangl.convert`                                | Запускает конвертацию модели через Tangl           | `None`       |
+| `folder_items_naming_pattern.find`             | Шаблоны именования файлов папки                    | `dict`       |
+
+### user_log
+| Метод              | Описание                              | Возвращает   |
+|---------------------|--------------------------------------|--------------|
+| `user_log.get_list`| Журнал действий пользователей          | `list[dict]` |
+
+Для методов, принимающих `filter`/`find`/`values`/`items` как `dict`, структура соответствует одноимённой схеме в [спецификации API](https://api.sgnl.pro/openapi/swagger/index.html) — ключи передаются в camelCase, как в JSON-теле запроса (например `{"projectId": "...", "issueIds": [...]}`).
 

@@ -60,7 +60,8 @@ class Item:
             self,
             name: str,
             folder_id: UUID,
-            version_id: UUID
+            version_id: UUID,
+            naming_pattern_id: UUID = None
     ) -> UUID:
         """
         Creates a new File item with a version and attaches it to the item. Returns the id of the created item.
@@ -68,17 +69,13 @@ class Item:
         :param name: Name of item to create
         :param folder_id: UUID of the folder
         :param version_id: UUID of the version
+        :param naming_pattern_id: Identifier of the naming pattern to apply
         :return: UUID of the created item
         """
-        return await self._transport.request(
-            method='PUT',
-            path='/items/file',
-            json={
-                'name': name,
-                'folderId': folder_id,
-                'versionId': version_id
-            }
-        )
+        payload = {'name': name, 'folderId': folder_id, 'versionId': version_id}
+        if naming_pattern_id is not None:
+            payload['namingPatternId'] = naming_pattern_id
+        return await self._transport.request(method='PUT', path='/items/file', json=payload)
 
     @extract_key_from_response(key='data')
     async def create_link(
@@ -109,13 +106,15 @@ class Item:
             self,
             item_id: UUID,
             version_id: UUID,
-            file_name: str = None
+            file_name: str = None,
+            url_ttl_sec_override: int = None
     ) -> dict:
         """
         Required scopes: docs:item:read.
         :param item_id: Item UUID
         :param version_id: Version UUID
         :param file_name: ...
+        :param url_ttl_sec_override: Download url ttl in seconds. Can be set only for custom storages
         :return: Returns S3 download link
         """
         params = {
@@ -124,6 +123,8 @@ class Item:
         }
         if file_name:
             params['fileName'] = file_name
+        if url_ttl_sec_override is not None:
+            params['urlTtlSecOverride'] = url_ttl_sec_override
         return await self._transport.request(
             method='GET',
             path='/items/download',
@@ -150,3 +151,57 @@ class Item:
                 'versionId': version_id
             }
         )
+
+    async def search(self, folder_id: UUID, name: str = None, suffixes: list[str] = None, take: int = 100, skip: int = 0) -> list[dict]:
+        """
+        Returns a folder`s nested items search result.
+        Required scopes: docs:item:list
+        :param folder_id: Identifier for search within the folder and its subfolders
+        :param name: Filter by item name
+        :param suffixes: Filter by file suffixes (e.g., extensions)
+        """
+        payload = {'folderId': folder_id}
+        if name is not None:
+            payload['name'] = name
+        if suffixes is not None:
+            payload['suffixes'] = suffixes
+        return await self._transport.request(
+            method='POST', path='/items/search', params={'Take': take, 'Skip': skip}, json=payload
+        )
+
+    async def get_item_version(self, id: UUID) -> dict:
+        """
+        Retrieves a specific item version by its unique identifier.
+        Required scopes: docs:item:read
+        """
+        return await self._transport.request(method='GET', path='/items/item-version', params={'id': id})
+
+    async def update(self, item_id: UUID, name: str = None, link: str = None) -> None:
+        """
+        Updates an existing item.
+        Required scopes: docs:item:update
+        :param link: New link, only applicable for Link items
+        """
+        payload = {'id': item_id}
+        if name is not None:
+            payload['name'] = name
+        if link is not None:
+            payload['link'] = link
+        return await self._transport.request(method='PATCH', path='/items/update', json=payload)
+
+    async def update_version(self, item_version_id: UUID, comment: str = None) -> None:
+        """
+        Updates an existing item version.
+        Required scopes: docs:version:update
+        """
+        payload = {'id': item_version_id}
+        if comment is not None:
+            payload['comment'] = comment
+        return await self._transport.request(method='PATCH', path='/items/versions/update', json=payload)
+
+    async def delete(self, item_id: UUID) -> None:
+        """
+        Moves an item to the trash.
+        Required scopes: docs:item:delete
+        """
+        return await self._transport.request(method='DELETE', path=f'/items/{item_id}')

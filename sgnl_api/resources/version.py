@@ -45,10 +45,22 @@ class Version:
         """
         return await self._transport.request(
             method='GET',
-            path='/versions',
+            path='/versions/count',
             params={
                 'itemId': item_id
             }
+        )
+
+    async def find_batch(self, project_id: UUID, item_ids: list[UUID]) -> list[dict]:
+        """
+        Returns a list of versions for an item batch.
+        Required scopes: docs:version:list
+        :param item_ids: Items' UUIDs (max 100)
+        """
+        return await self._transport.request(
+            method='POST',
+            path='/versions/find-batch',
+            json={'projectId': project_id, 'itemIds': item_ids}
         )
 
     @extract_key_from_response(key="data")
