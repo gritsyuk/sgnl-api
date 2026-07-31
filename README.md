@@ -22,18 +22,37 @@ SECRET_ID = os.getenv("SECRET_ID")
 
 async def main():
 
-    docs = await DocsApi.create(
+    async with await DocsApi.create(
         client_id=CLIENT_ID,
         client_secret=SECRET_ID
-    )
-    projects = await docs.project.get_list()
-    for project in projects:
-        print(project)
+    ) as docs:
+        projects = await docs.project.get_list()
+        for project in projects:
+            print(project)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+Клиент можно использовать и без `async with` — тогда после завершения работы стоит вызвать `await docs.aclose()`, чтобы закрыть пул соединений.
+
+## Обработка ошибок
+При ошибке API методы бросают исключение, а не возвращают `dict` с ключом `error` — проверять каждый ответ вручную не нужно.
+
+```python
+from sgnl_api import DocsApi, SgnlApiError, SgnlNotFoundError
+
+try:
+    project = await docs.project.info(project_id)
+except SgnlNotFoundError:
+    ...
+except SgnlApiError as e:
+    print(e.status_code, e.message)
+```
+
+Иерархия исключений: `SgnlApiError` (базовое) → `SgnlRequestError` (сетевые ошибки/таймауты), `SgnlAuthenticationError` (401), `SgnlBadRequestError` (400), `SgnlForbiddenError` (403), `SgnlNotFoundError` (404), `SgnlQuotaExceededError` (450), `SgnlServerError` (5xx).
+
 ## Методы
 | Метод                   | Описание                                                         | Возвращает         |
 |-------------------------|-----------------------------------------------------------------|--------------------|
