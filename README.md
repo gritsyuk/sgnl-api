@@ -81,3 +81,12 @@ except SgnlApiError as e:
 | `file.commit_uploading` | Завершает загрузку объекта                                       | `None`             |
 | `file.upload`           | Загружает файл                                                   | `dict` или `None`  |
 
+## Разработка и публикация
+Сборка и публикация пакета выполняются через [uv](https://docs.astral.sh/uv/), отдельно устанавливать `setuptools`/`twine` не нужно.
+```bash
+uv sync            # установить зависимости (включая dev-группу) и создать/обновить uv.lock
+uv build            # собрать sdist и wheel в dist/
+uv publish          # опубликовать пакет из dist/ на PyPI (нужен PyPI-токен, см. ниже)
+```
+Токен передаётся через переменную окружения `UV_PUBLISH_TOKEN` (или флагом `uv publish --token ...`).
+
