@@ -11,6 +11,17 @@ on:
     tags:
       - "sgnl-api-v*"
       - "sgnl-mcp-v*"
+  # Manual run (Actions -> Publish to PyPI -> Run workflow): publishes the version
+  # currently in the chosen package's pyproject.toml.
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package to publish"
+        required: true
+        type: choice
+        options:
+          - sgnl-api
+          - sgnl-mcp
 
 jobs:
   publish:
@@ -28,17 +39,29 @@ jobs:
 
       - name: Resolve package from tag
         id: pkg
+        env:
+          INPUT_PACKAGE: ${{ inputs.package }}
         run: |
-          tag="${GITHUB_REF_NAME}"
-          case "$tag" in
-            sgnl-api-v*) name=sgnl-api; version="${tag#sgnl-api-v}"; manifest=pyproject.toml ;;
-            sgnl-mcp-v*) name=sgnl-mcp; version="${tag#sgnl-mcp-v}"; manifest=mcp/pyproject.toml ;;
-            *) echo "Unknown tag $tag"; exit 1 ;;
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            name="$INPUT_PACKAGE"; version=""
+          else
+            tag="${GITHUB_REF_NAME}"
+            case "$tag" in
+              sgnl-api-v*) name=sgnl-api; version="${tag#sgnl-api-v}" ;;
+              sgnl-mcp-v*) name=sgnl-mcp; version="${tag#sgnl-mcp-v}" ;;
+              *) echo "Unknown tag $tag"; exit 1 ;;
+            esac
+          fi
+          case "$name" in
+            sgnl-api) manifest=pyproject.toml ;;
+            sgnl-mcp) manifest=mcp/pyproject.toml ;;
+            *) echo "Unknown package $name"; exit 1 ;;
           esac
           actual=$(python3 -c "import tomllib; print(tomllib.load(open('$manifest', 'rb'))['project']['version'])")
-          if [ "$actual" != "$version" ]; then
+          if [ -n "$version" ] && [ "$actual" != "$version" ]; then
             echo "Tag says $version but $manifest has $actual"; exit 1
           fi
+          echo "Publishing $name $actual"
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - name: Test
