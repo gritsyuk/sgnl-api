@@ -1,5 +1,6 @@
 """MCP server: registers the tools the configured profile allows and runs them through the App runtime."""
 import contextlib
+import sys
 from datetime import date
 from typing import Annotated, Any, Literal, Optional
 from uuid import UUID
@@ -7,7 +8,7 @@ from uuid import UUID
 from mcp.server.mcpserver import AcceptedElicitation, ElicitationResult, Elicit, MCPServer, Resolve
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .config import Settings
 from .errors import ToolFailure
@@ -439,10 +440,49 @@ def build_server(settings: Settings, app: Optional[App] = None) -> tuple[MCPServ
     return server, app
 
 
+def describe_settings_error(error: ValidationError) -> str:
+    """One line per problem, named by the environment variable to fix."""
+    lines = []
+    for e in error.errors():
+        loc = [str(part) for part in e["loc"]]
+        if not loc:
+            name = ""
+        elif loc[0].startswith("SGNL_"):
+            name = loc[0]
+        else:
+            name = "SGNL_MCP_" + loc[0].upper()
+        message = e["msg"].removeprefix("Value error, ")
+        if e["type"] == "missing":
+            message = "is not set"
+        lines.append(f"  {name} {message}".rstrip() if name else f"  {message}")
+    return "sgnl-mcp: invalid configuration\n" + "\n".join(lines) + "\nSee the settings table in the sgnl-mcp README."
+
+
+def _startup_failure(error: BaseException) -> Optional[RuntimeError]:
+    """The RuntimeError App.start raised, even when the server wraps it in exception groups."""
+    if isinstance(error, RuntimeError) and not isinstance(error, BaseExceptionGroup):
+        return error
+    if isinstance(error, BaseExceptionGroup):
+        for inner in error.exceptions:
+            found = _startup_failure(inner)
+            if found:
+                return found
+    return None
+
+
 def main() -> None:
-    settings = Settings()
+    try:
+        settings = Settings()
+    except ValidationError as e:
+        sys.exit(describe_settings_error(e))
     server, _ = build_server(settings)
-    server.run("stdio")
+    try:
+        server.run("stdio")
+    except BaseException as e:
+        failure = _startup_failure(e)
+        if failure is None:
+            raise
+        sys.exit(f"sgnl-mcp: cannot start\n  {failure}")
 
 
 if __name__ == "__main__":

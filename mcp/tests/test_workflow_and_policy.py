@@ -170,3 +170,32 @@ def test_allowlist_has_no_delete_and_matches_spec():
 def test_no_profile_requests_delete_scopes():
     for profile in Profile:
         assert not [s for s in scopes_for(profile) if s.endswith(":delete")]
+
+
+def test_settings_errors_name_the_variables(monkeypatch):
+    import pytest
+    from pydantic import ValidationError
+
+    from sgnl_mcp.config import Settings
+    from sgnl_mcp.server import describe_settings_error
+
+    for name in ("SGNL_CLIENT_ID", "SGNL_CLIENT_SECRET", "SGNL_MCP_PROFILE", "SGNL_MCP_ACTOR_USER_ID",
+                 "SGNL_MCP_UPLOAD_ROOT", "SGNL_MCP_RATE_PER_SEC"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(ValidationError) as missing:
+        Settings(_env_file=None)
+    text = describe_settings_error(missing.value)
+    assert "SGNL_CLIENT_ID is not set" in text and "SGNL_CLIENT_SECRET is not set" in text
+
+    monkeypatch.setenv("SGNL_CLIENT_ID", "x")
+    monkeypatch.setenv("SGNL_CLIENT_SECRET", "y")
+    monkeypatch.setenv("SGNL_MCP_RATE_PER_SEC", "50")
+    with pytest.raises(ValidationError) as too_fast:
+        Settings(_env_file=None)
+    assert "SGNL_MCP_RATE_PER_SEC" in describe_settings_error(too_fast.value)
+
+    monkeypatch.delenv("SGNL_MCP_RATE_PER_SEC")
+    monkeypatch.setenv("SGNL_MCP_PROFILE", "write")
+    with pytest.raises(ValidationError) as no_actor:
+        Settings(_env_file=None)
+    assert "SGNL_MCP_ACTOR_USER_ID is required" in describe_settings_error(no_actor.value)
