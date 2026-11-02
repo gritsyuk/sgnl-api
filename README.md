@@ -1,8 +1,20 @@
 # <img src="./img/logo.svg"> SIGNAL API
 
 ![PyPI - Version](https://img.shields.io/pypi/v/sgnl-api) [![Telegram chat](https://img.shields.io/badge/Просто_о_BIM-join-blue?logo=telegram)](https://t.me/prostobim)
-## Обертка над API Signal 
-Официальная документация [https://api.sgnl.pro/openapi/swagger/index.html](https://api.sgnl.pro/openapi/swagger/index.html)
+
+Официальная документация API: [swagger](https://api.sgnl.pro/openapi/swagger/index.html), [OpenAPI-схема](https://api.sgnl.pro/openapi/v1/schema.yml).
+
+## Два пакета в одном репозитории
+
+| Пакет | Что это | Установка | Каталог |
+|---|---|---|---|
+| `sgnl-api` | Асинхронная Python-обёртка над всем SIGNAL Integration API | `pip install -U sgnl-api` | `sgnl_api/` |
+| `sgnl-mcp` | MCP-сервер: даёт LLM-агенту контролируемый доступ к SIGNAL — чтение без ограничений, запись только с подтверждением, удаление недоступно | `uvx sgnl-mcp` | [`mcp/`](mcp/README.md) |
+
+`sgnl-mcp` построен поверх `sgnl-api` и зависит от него; `sgnl-api` ничего не знает про MCP и не тянет его зависимости. Пакеты выпускаются на PyPI независимо. Настройка MCP-сервера и подключение к Claude — в [mcp/README.md](mcp/README.md).
+
+# sgnl-api — обёртка над API
+
 ## Установка
 ```bash
 pip install -U sgnl-api
@@ -60,13 +72,43 @@ API ограничивает частоту запросов (около 10 за
 api = await DocsApi.create(client_id=..., client_secret=..., max_retries=5)  # 0 — отключить повторы
 ```
 
+Если токен отозван раньше срока, на ответ 401 клиент один раз получает новый токен и повторяет запрос.
+
+## Загрузка файла
+Документ из локального файла создаётся в три шага. Файл передаётся в хранилище потоком, поэтому большие файлы (API допускает до 5 ГиБ) не загружаются в память целиком.
+
+```python
+uploaded = await docs.file.upload(project_id, "drawings/A-101.pdf")      # {"object_id", "mime_type", "size"}
+version_id = await docs.version.create(object_id=uploaded["object_id"], project_id=project_id, name="A-101.pdf")
+item_id = await docs.item.create_file("A-101.pdf", folder_id, version_id)  # новый документ
+# или новая версия существующего документа:
+await docs.item.add_version(item_id, version_id)
+```
+
+## Свой HTTP-клиент
+В `DocsApi.create` можно передать свой `httpx.AsyncClient` — например, с транспортом, который фильтрует или ограничивает запросы (так устроен `sgnl-mcp`). Такой клиент `aclose()` не закрывает: его закрывает владелец.
+
+```python
+async with httpx.AsyncClient(transport=my_transport, timeout=30) as http:
+    docs = await DocsApi.create(client_id=..., client_secret=..., http_client=http)
+```
+
 ## Проверка покрытия API
 Скрипт сравнивает [спецификацию](https://api.sgnl.pro/openapi/v1/schema.yml) с методами обёртки и показывает новые, удалённые и изменённые эндпоинты:
 ```bash
-uv run scripts/check_api_coverage.py               # скачать спецификацию с api.sgnl.pro
-uv run scripts/check_api_coverage.py schema.yml    # или локальный файл
+uv run scripts/check_api_coverage.py                       # скачать спецификацию с api.sgnl.pro
+uv run scripts/check_api_coverage.py openapi/schema.yml    # или сохранённую копию из репозитория
 ```
-Код возврата 1 означает, что обёртка вызывает эндпоинт, которого больше нет, или не передаёт обязательное поле.
+Код возврата 1 означает, что обёртка вызывает эндпоинт, которого больше нет, или не передаёт обязательное поле. Копия спецификации в `openapi/schema.yml` используется и тестами `sgnl-mcp`: при обновлении API её нужно заменить.
+
+## Разработка
+Репозиторий — uv workspace из двух пакетов (`sgnl-api` в корне и `sgnl-mcp` в `mcp/`):
+```bash
+uv sync --all-packages                     # оба пакета и dev-зависимости
+uv run pytest                              # тесты SDK
+uv run --package sgnl-mcp pytest mcp/tests # тесты MCP-сервера
+uv build --all-packages                    # sdist и wheel обоих пакетов в dist/
+```
 
 ## Методы
 Обертка покрывает весь официальный API ([swagger](https://api.sgnl.pro/openapi/swagger/index.html)). Методы сгруппированы по ресурсам ровно как в спецификации (по тегам).
@@ -136,7 +178,7 @@ uv run scripts/check_api_coverage.py schema.yml    # или локальный �
 |-------------------------|-------------------------------------------------------------------|--------------------|
 | `file.get_object_upload`| Получает тикет на загрузку объекта                                | `dict`             |
 | `file.commit_uploading` | Завершает загрузку объекта                                        | `None`             |
-| `file.upload`           | Загружает файл целиком (upload + commit)                          | `dict` или `None`  |
+| `file.upload`           | Загружает файл потоком (тикет, передача в хранилище, commit)      | `dict` (`object_id`, `mime_type`, `size`) |
 
 ### attribute / attribute_type / attribute_value
 | Метод                            | Описание                                              | Возвращает   |
