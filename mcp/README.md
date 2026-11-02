@@ -92,7 +92,14 @@ claude mcp add sgnl -e SGNL_CLIENT_ID=… -e SGNL_CLIENT_SECRET=… -e SGNL_MCP_
 
 ## Запуск в Docker
 
-Образ собирается из корня репозитория (ему нужны оба пакета рабочего пространства):
+Готовый образ для `linux/amd64` и `linux/arm64` (в том числе Mac на Apple Silicon) публикуется в GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/gritsyuk/sgnl-mcp:latest   # или конкретная версия, например :0.1.0
+docker tag ghcr.io/gritsyuk/sgnl-mcp:latest sgnl-mcp
+```
+
+Для работы стоит закрепить версию (`:0.1.0`), а не `latest`: тогда образ не обновится без вашего ведома. Можно и собрать образ самостоятельно из корня репозитория (ему нужны оба пакета рабочего пространства):
 
 ```bash
 docker build -f mcp/Dockerfile -t sgnl-mcp .
