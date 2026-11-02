@@ -43,3 +43,8 @@ def keys_to_snake_case(data: T, max_depth: Optional[int] = None, _current_depth:
             for item in data
         ]
     return data
+
+
+def drop_none(**fields) -> dict:
+    """Builds a request payload from keyword arguments, leaving out the ones that are None."""
+    return {key: value for key, value in fields.items() if value is not None}

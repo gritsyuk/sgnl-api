@@ -6,6 +6,7 @@ from .exceptions import (
     SgnlForbiddenError,
     SgnlNotFoundError,
     SgnlQuotaExceededError,
+    SgnlRateLimitError,
     SgnlRequestError,
     SgnlServerError,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "SgnlForbiddenError",
     "SgnlNotFoundError",
     "SgnlQuotaExceededError",
+    "SgnlRateLimitError",
     "SgnlRequestError",
     "SgnlServerError",
 ]

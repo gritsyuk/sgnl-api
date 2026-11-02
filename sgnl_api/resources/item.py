@@ -2,6 +2,7 @@ from uuid import UUID
 
 from ..decorators import extract_key_from_response
 from ..transport import Transport
+from ..utils import drop_none
 
 
 class Item:
@@ -28,8 +29,8 @@ class Item:
             path='/items',
             params={
                 'folderId': folder_id,
-                'take': take,
-                'skip': skip,
+                'Take': take,
+                'Skip': skip,
                 'deleted': deleted
             }
         )
@@ -82,14 +83,14 @@ class Item:
             self,
             name: str,
             folder_id: UUID,
-            version_id: UUID
+            link: str
     ) -> UUID:
         """
         Creates a new Link item. Returns the id of the created item.
         Required scopes: docs:item:create
-        :param name:
-        :param folder_id:
-        :param version_id:
+        :param name: Name of the link item
+        :param folder_id: UUID of the folder
+        :param link: Target URL of the link item
         :return: UUID of the created link.
         """
         return await self._transport.request(
@@ -98,7 +99,7 @@ class Item:
             json={
                 'name': name,
                 'folderId': folder_id,
-                'versionId': version_id
+                'link': link
             }
         )
 
@@ -205,3 +206,20 @@ class Item:
         Required scopes: docs:item:delete
         """
         return await self._transport.request(method='DELETE', path=f'/items/{item_id}')
+
+    async def move(
+            self,
+            item_id: UUID,
+            new_folder_id: UUID,
+            new_name: str = None,
+            naming_pattern_id: UUID = None
+    ) -> None:
+        """
+        Moves an item to another folder.
+        Required scopes: docs:item:update
+        """
+        return await self._transport.request(
+            method='PATCH',
+            path='/items/move',
+            json=drop_none(id=item_id, newFolderId=new_folder_id, newName=new_name, namingPatternId=naming_pattern_id)
+        )

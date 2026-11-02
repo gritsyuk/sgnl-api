@@ -1,5 +1,7 @@
 import asyncio
-from datetime import datetime, timedelta
+import json as jsonlib
+from datetime import date, datetime, timedelta
+from uuid import UUID
 from typing import List, Optional, Union
 
 import httpx
@@ -11,18 +13,25 @@ from .exceptions import (
     SgnlForbiddenError,
     SgnlNotFoundError,
     SgnlQuotaExceededError,
+    SgnlRateLimitError,
     SgnlRequestError,
     SgnlServerError,
 )
 from .utils import keys_to_snake_case
 
 DEFAULT_TIMEOUT = 30.0
+DEFAULT_MAX_RETRIES = 3
+# Upper bound for a single wait on 429, so a misbehaving Retry-After cannot stall the caller for minutes.
+MAX_RETRY_AFTER = 30.0
+# Wait used when a 429 response has no usable Retry-After header.
+DEFAULT_RETRY_AFTER = 1.0
 
 _ERROR_CLASSES = {
     400: SgnlBadRequestError,
     401: SgnlAuthenticationError,
     403: SgnlForbiddenError,
     404: SgnlNotFoundError,
+    429: SgnlRateLimitError,
     450: SgnlQuotaExceededError,
 }
 
@@ -31,6 +40,7 @@ _STATUS_REASONS = {
     401: "The request did not have the correct authorization header credentials",
     403: "Forbidden",
     404: "Not found",
+    429: "Too many requests",
     450: "Maximum resource quota reached. To increase the quota, contact support",
 }
 
@@ -43,8 +53,31 @@ def _error_class_for(status_code: int) -> type:
     return SgnlApiError
 
 
+def _json_default(value):
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _encode_json(payload) -> bytes:
+    """Serializes a request body, accepting UUID, datetime and date values as the API's string formats."""
+    return jsonlib.dumps(payload, default=_json_default, ensure_ascii=False).encode("utf-8")
+
+
+def _parse_retry_after(response: httpx.Response) -> Optional[float]:
+    value = response.headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        return max(float(value), 0.0)
+    except ValueError:
+        return None
+
+
 class Transport:
-    """Owns the HTTP connection pool and auth token lifecycle for the SGNL API."""
+    """Owns the HTTP connection pool, auth token lifecycle and rate-limit retries for the SGNL API."""
 
     def __init__(
             self,
@@ -53,11 +86,13 @@ class Transport:
             client_secret: str,
             scopes: List[str],
             base_url: str,
-            timeout: float = DEFAULT_TIMEOUT) -> None:
+            timeout: float = DEFAULT_TIMEOUT,
+            max_retries: int = DEFAULT_MAX_RETRIES) -> None:
         self.client_id = client_id
         self.client_secret = client_secret
         self.scopes = scopes
         self.base_url = base_url
+        self.max_retries = max_retries
         self._jwt = None
         self._jwt_expires_at = None
         self._token_lock = asyncio.Lock()
@@ -70,12 +105,34 @@ class Transport:
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    async def _send(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """Sends a request, retrying on 429 up to ``max_retries`` times, honoring Retry-After.
+
+        Returns the last response, which may still be a 429 if retries were exhausted.
+        Network-level failures are raised as SgnlRequestError.
+        """
+        attempt = 0
+        while True:
+            try:
+                response = await self._client.request(method=method, url=url, **kwargs)
+            except httpx.HTTPError as e:
+                raise SgnlRequestError(f"{method} {url} failed: {e}") from e
+
+            if response.status_code != 429 or attempt >= self.max_retries:
+                return response
+
+            retry_after = _parse_retry_after(response)
+            delay = DEFAULT_RETRY_AFTER if retry_after is None else retry_after
+            await asyncio.sleep(min(delay, MAX_RETRY_AFTER))
+            attempt += 1
+
     async def _ensure_token(self) -> None:
         async with self._token_lock:
             if self._jwt is not None and self._jwt_expires_at and datetime.now() < self._jwt_expires_at:
                 return
             try:
-                response = await self._client.post(
+                response = await self._send(
+                    'POST',
                     f'{self.base_url}/auth/token',
                     json={
                         "clientId": self.client_id,
@@ -84,9 +141,19 @@ class Transport:
                     },
                     headers={'Content-Type': 'application/json'}
                 )
-                response.raise_for_status()
-            except httpx.HTTPError as e:
+            except SgnlRequestError as e:
                 raise SgnlAuthenticationError(f"Authentication failed: {e}") from e
+
+            if response.status_code == 429:
+                raise SgnlRateLimitError(
+                    f"Authentication failed: too many requests: {response.text}",
+                    retry_after=_parse_retry_after(response)
+                )
+            if not response.is_success:
+                raise SgnlAuthenticationError(
+                    f"Authentication failed with status {response.status_code}: {response.text}",
+                    status_code=response.status_code
+                )
 
             data = response.json()
             self._jwt = data.get('token')
@@ -99,22 +166,25 @@ class Transport:
             path: str,
             *,
             params: Optional[dict] = None,
-            json: Optional[dict] = None) -> Union[dict, list, None]:
+            json: Union[dict, list, None] = None) -> Union[dict, list, str, int, None]:
         await self._ensure_token()
 
-        try:
-            response = await self._client.request(
-                method=method,
-                url=f'{self.base_url}{path}',
-                params=params,
-                json=json,
-                headers={
-                    "accept": "application/json",
-                    "Authorization": f"Bearer {self._jwt}"
-                }
-            )
-        except httpx.HTTPError as e:
-            raise SgnlRequestError(f"{method} {path} failed: {e}") from e
+        headers = {
+            "accept": "application/json",
+            "Authorization": f"Bearer {self._jwt}"
+        }
+        content = None
+        if json is not None:
+            content = _encode_json(json)
+            headers["Content-Type"] = "application/json"
+
+        response = await self._send(
+            method,
+            f'{self.base_url}{path}',
+            params=params,
+            content=content,
+            headers=headers
+        )
 
         if response.is_success:
             if not response.content:
@@ -122,8 +192,7 @@ class Transport:
             return keys_to_snake_case(response.json())
 
         reason = _STATUS_REASONS.get(response.status_code, "Unexpected error")
-        error_class = _error_class_for(response.status_code)
-        raise error_class(
-            f"{method} {path} -> {response.status_code} {reason}: {response.text}",
-            status_code=response.status_code
-        )
+        message = f"{method} {path} -> {response.status_code} {reason}: {response.text}"
+        if response.status_code == 429:
+            raise SgnlRateLimitError(message, retry_after=_parse_retry_after(response))
+        raise _error_class_for(response.status_code)(message, status_code=response.status_code)

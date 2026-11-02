@@ -35,3 +35,15 @@ class DocumentsTransferItem:
         if file_name:
             params['fileName'] = file_name
         return await self._transport.request(method='GET', path='/documents-transfer-items/download', params=params)
+
+    async def add(self, documents_transfer_id: UUID, item_version_ids: list[UUID]) -> None:
+        """
+        Adds item versions to an existing document transfer.
+        Required scopes: docs:docs_transfer:update
+        :param item_version_ids: max 200 items
+        """
+        return await self._transport.request(
+            method='POST',
+            path='/documents-transfer-items/add',
+            json={'documentsTransferId': documents_transfer_id, 'itemVersionIds': item_version_ids}
+        )

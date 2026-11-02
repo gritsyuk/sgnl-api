@@ -43,3 +43,26 @@ class DocumentsTransfer:
             path='/documents-transfers/accesses',
             json={'documentsTransferTypeIds': documents_transfer_type_ids}
         )
+
+    async def create(
+            self,
+            *,
+            documents_transfer_type_id: UUID,
+            cipher: str,
+            name: str,
+            author_id: UUID
+    ) -> UUID:
+        """
+        Creates a new document transfer. Returns its id.
+        Required scopes: docs:docs_transfer:create
+        """
+        return await self._transport.request(
+            method='POST',
+            path='/documents-transfers/create',
+            json={
+                'documentsTransferTypeId': documents_transfer_type_id,
+                'cipher': cipher,
+                'name': name,
+                'authorId': author_id
+            }
+        )

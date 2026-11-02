@@ -51,7 +51,22 @@ except SgnlApiError as e:
     print(e.status_code, e.message)
 ```
 
-Иерархия исключений: `SgnlApiError` (базовое) → `SgnlRequestError` (сетевые ошибки/таймауты), `SgnlAuthenticationError` (401), `SgnlBadRequestError` (400), `SgnlForbiddenError` (403), `SgnlNotFoundError` (404), `SgnlQuotaExceededError` (450), `SgnlServerError` (5xx).
+Иерархия исключений: `SgnlApiError` (базовое) → `SgnlRequestError` (сетевые ошибки/таймауты), `SgnlAuthenticationError` (401), `SgnlBadRequestError` (400), `SgnlForbiddenError` (403), `SgnlNotFoundError` (404), `SgnlQuotaExceededError` (450), `SgnlRateLimitError` (429), `SgnlServerError` (5xx).
+
+## Лимиты запросов (429)
+API ограничивает частоту запросов (около 10 запросов в секунду на `client_id`, 50 с пополнением 4 в секунду на компанию). При ответе 429 клиент сам ждёт интервал из заголовка `Retry-After` (не больше 30 с за раз) и повторяет запрос — по умолчанию до 3 раз. Если лимит не отпустил, бросается `SgnlRateLimitError` с полем `retry_after`.
+
+```python
+api = await DocsApi.create(client_id=..., client_secret=..., max_retries=5)  # 0 — отключить повторы
+```
+
+## Проверка покрытия API
+Скрипт сравнивает [спецификацию](https://api.sgnl.pro/openapi/v1/schema.yml) с методами обёртки и показывает новые, удалённые и изменённые эндпоинты:
+```bash
+uv run scripts/check_api_coverage.py               # скачать спецификацию с api.sgnl.pro
+uv run scripts/check_api_coverage.py schema.yml    # или локальный файл
+```
+Код возврата 1 означает, что обёртка вызывает эндпоинт, которого больше нет, или не передаёт обязательное поле.
 
 ## Методы
 Обертка покрывает весь официальный API ([swagger](https://api.sgnl.pro/openapi/swagger/index.html)). Методы сгруппированы по ресурсам ровно как в спецификации (по тегам).
@@ -63,13 +78,14 @@ except SgnlApiError as e:
 | `item.count`            | Количество файлов в директории                                    | `int`              |
 | `item.search`           | Поиск вложенных элементов в директории                            | `list[dict]`       |
 | `item.create_file`      | Создает новый файл с версией                                      | `UUID`             |
-| `item.create_link`      | Создает новую ссылку                                               | `UUID`             |
+| `item.create_link`      | Создает элемент-ссылку на URL                                      | `UUID`             |
 | `item.get_link`         | Получает ссылку для загрузки файла                                | `dict`             |
 | `item.get_item_version` | Возвращает версию элемента по UUID                                | `dict`             |
 | `item.add_version`      | Добавляет новую версию к существующему файлу                      | `None`             |
 | `item.update`           | Обновляет элемент (имя/ссылку)                                    | `None`             |
 | `item.update_version`   | Обновляет комментарий версии элемента                             | `None`             |
 | `item.delete`           | Перемещает элемент в корзину                                      | `None`             |
+| `item.move` | Перемещает элемент в другую папку | `None` |
 
 ### folder
 | Метод                   | Описание                                                         | Возвращает         |
@@ -92,6 +108,7 @@ except SgnlApiError as e:
 | `project.users`         | Список пользователей проекта                                       | `list[dict]`       |
 | `project.roles`         | Список ролей проекта                                                | `list[dict]`       |
 | `project.users_permissions` | Права пользователя в проекте                                   | `list[str]`        |
+| `project.update` | Обновляет основную информацию проекта | `None` |
 | `project_user.add`      | Добавляет пользователей в проекты                                  | `None`             |
 | `project_user.delete`   | Удаляет пользователей из проектов                                  | `None`             |
 | `project_user_custom_role.set` | Назначает кастомные роли пользователю в проекте              | `None`             |
@@ -126,6 +143,10 @@ except SgnlApiError as e:
 |-----------------------------------|--------------------------------------------------------|--------------|
 | `attribute.get_list`              | Список атрибутов по фильтру                             | `list[dict]` |
 | `attribute_type.get_list`         | Список типов атрибутов по фильтру                       | `list[dict]` |
+| `attribute_type.create` | Создает тип атрибута | `UUID` |
+| `attribute_type.update` | Обновляет типы атрибутов (до 50) | `None` |
+| `attribute_type_list_items.create` | Добавляет значения в атрибут-список | `None` |
+| `attribute_type_list_items.update` | Обновляет значения атрибута-списка | `None` |
 | `attribute_value.list_issues`     | Значения атрибутов замечаний                             | `list[dict]` |
 | `attribute_value.list_items`      | Значения атрибутов элементов                             | `list[dict]` |
 | `attribute_value.list_folders`    | Значения атрибутов папок                                 | `list[dict]` |
@@ -135,6 +156,7 @@ except SgnlApiError as e:
 | Метод                                    | Описание                                          | Возвращает   |
 |--------------------------------------------|------------------------------------------------------|--------------|
 | `issue.get_list`                          | Список замечаний по фильтру                          | `list[dict]` |
+| `issue.create` | Создает замечание | `UUID` |
 | `issue.update`                            | Пакетное обновление замечаний (до 25 шт.)             | `None`       |
 | `issue.count`                             | Количество замечаний по фильтру                       | `int`        |
 | `issue.item_issues_count`                 | Количество замечаний по элементам                     | `list[dict]` |
@@ -149,7 +171,7 @@ except SgnlApiError as e:
 | `issue_events.count`                      | Количество событий                                     | `int`        |
 | `issue_project_settings.get`              | Настройки замечаний проекта                            | `dict`       |
 
-### review и связанные (review_group, review_item)
+### review и связанные (review_group, review_item, review_type, review_process)
 | Метод                                                   | Описание                                     | Возвращает   |
 |------------------------------------------------------------|--------------------------------------------------|--------------|
 | `review.get_list`                                         | Список согласований проекта                       | `list[dict]` |
@@ -157,8 +179,15 @@ except SgnlApiError as e:
 | `review.count`                                             | Количество согласований                            | `int`        |
 | `review.get_versions`                                      | Версии согласований по id                          | `list[dict]` |
 | `review.find_item_version_ids_by_review_version_ids`       | Версии элементов по версиям согласования           | `dict`       |
+| `review.create` | Создает согласование | `UUID` |
+| `review.set_comment` | Устанавливает/очищает комментарий последней версии | `None` |
+| `review.set_type` | Меняет тип согласования | `None` |
+| `review_type.get_names` | Названия типов согласования проекта | `list[dict]` |
+| `review_process.start` | Запускает процесс согласования | `None` |
 | `review_group.get_list`                                    | Список групп согласований                          | `list[dict]` |
 | `review_item.get_statuses`                                 | Статусы согласования для версий элементов          | `list[dict]` |
+| `review_item.add` | Добавляет версию элемента в согласование | `None` |
+| `review_item.remove` | Удаляет версию элемента из согласования | `None` |
 
 ### share / storage
 | Метод              | Описание                                    | Возвращает   |
@@ -182,24 +211,29 @@ except SgnlApiError as e:
 | `mchd.download`                       | Тикет на загрузку доверенности                         | `dict`       |
 | `card_public_link.regenerate`         | Перегенерирует публичную ссылку карточки дашборда       | `dict`       |
 
-### documents_transfer / documents_transfer_item / documents_transfer_type / acceptance_certificate
+### documents_transfer / documents_transfer_item / documents_transfer_type / documents_transfer_acceptance / acceptance_certificate
 | Метод                                          | Описание                                       | Возвращает   |
 |---------------------------------------------------|-----------------------------------------------------|--------------|
 | `documents_transfer.get_list`                     | Список передач документов по фильтру                 | `list[dict]` |
 | `documents_transfer.get`                          | Данные передачи документов по id                     | `dict`       |
 | `documents_transfer.count`                        | Количество передач по фильтру                        | `int`        |
 | `documents_transfer.accesses`                     | Правила доступа для типов передач                    | `list[dict]` |
+| `documents_transfer.create` | Создает передачу документов | `UUID` |
 | `documents_transfer_item.get_list`                | Список элементов передачи                            | `list[dict]` |
 | `documents_transfer_item.count`                   | Количество элементов передачи                        | `int`        |
 | `documents_transfer_item.download`                | Тикет на загрузку элемента передачи                  | `dict`       |
+| `documents_transfer_item.add` | Добавляет версии элементов в передачу | `None` |
 | `documents_transfer_type.get_list`                | Список типов передач документов                      | `list[dict]` |
 | `acceptance_certificate.download`                 | Тикет на загрузку акта приема-передачи               | `dict`       |
+| `acceptance_certificate.attach` | Прикрепляет акт приема-передачи к передаче | `UUID` |
+| `documents_transfer_acceptance.send` | Отправляет подготовленную передачу получателю | `None` |
 
 ### permissions / application_user
 | Метод                          | Описание                                        | Возвращает   |
 |----------------------------------|------------------------------------------------------|--------------|
 | `permissions.upsert_batch`      | Устанавливает права пользователей/ролей на папку       | `None`       |
 | `permissions.get_tree`          | Дерево папок проекта с правами                         | `dict`       |
+| `permissions.delete` | Удаляет конкретное право | `None` |
 | `application_user.upsert`       | Назначает роли пользователям в приложениях              | `None`       |
 | `application_user.delete`       | Отзывает доступ пользователей в приложениях             | `None`       |
 
@@ -210,6 +244,43 @@ except SgnlApiError as e:
 | `forge.get_viewers_data`                       | Токен и URN для Forge Viewer                       | `dict`       |
 | `tangl.convert`                                | Запускает конвертацию модели через Tangl           | `None`       |
 | `folder_items_naming_pattern.find`             | Шаблоны именования файлов папки                    | `dict`       |
+
+### формы (project_form, project_form_type, project_form_field_type, form_type, form_type_group, form_field_type)
+| Метод | Описание | Возвращает |
+|---|---|---|
+| `project_form.get_list` | Список форм проекта (фильтр + сортировка) | `dict` |
+| `project_form.count` | Количество форм по фильтру | `int` |
+| `project_form.get` | Форма по id | `dict` |
+| `project_form.get_summary` | Сводка по формам | `list[dict]` |
+| `project_form.create_batch` | Создает формы пачкой (до 200) | `list[UUID]` |
+| `project_form.update` | Обновляет поля формы | `None` |
+| `project_form.complete` | Завершает форму | `None` |
+| `project_form.find_form_source` | Формы-источники для поля | `dict` |
+| `project_form.get_values_for_template_item` | Значения для шаблона | `dict` |
+| `project_form.get_download_url_by_template_item` | Ссылка на скачивание по шаблону | `dict` |
+| `project_form_type.get_list` | Типы форм проекта | `list[dict]` |
+| `project_form_field_type.get_list` | Типы полей формы проекта | `dict` |
+| `form_type.get_list` | Типы форм | `list[dict]` |
+| `form_type_group.get_list` | Группы типов форм | `list[dict]` |
+| `form_field_type.get_list` | Типы полей форм | `list[dict]` |
+
+### дашборды (board, card, card_group)
+| Метод | Описание | Возвращает |
+|---|---|---|
+| `board.get_list` | Дашборды проекта | `list[dict]` |
+| `card_group.get_list` | Группы карточек дашборда (тег `Group` в API) | `list[dict]` |
+| `card.get_list` | Карточки дашборда | `list[dict]` |
+| `card.get` | Карточка с содержимым | `dict` |
+
+### бронирования и слоты (booking, slot)
+| Метод | Описание | Возвращает |
+|---|---|---|
+| `booking.get_list` | Бронирования компании (курсорная пагинация) | `list[dict]` |
+| `booking.create_batch` | Создает бронирования пачкой (до 200) | `list[dict]` |
+| `booking.delete_batch` | Удаляет бронирования | `None` |
+| `slot.get_list` | Слоты компании (курсорная пагинация) | `list[dict]` |
+| `slot.create_batch` | Создает слоты пачкой (до 200) | `list[dict]` |
+| `slot.delete_batch` | Удаляет слоты | `None` |
 
 ### user_log
 | Метод              | Описание                              | Возвращает   |

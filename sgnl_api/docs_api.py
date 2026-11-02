@@ -3,13 +3,19 @@ from .resources import (
     ApplicationUser,
     Attribute,
     AttributeType,
+    AttributeTypeListItems,
     AttributeValue,
+    Board,
+    Booking,
     CadesSignature,
+    Card,
+    CardGroup,
     CardPublicLink,
     Company,
     CompanyUser,
     CompanyUserCustomRole,
     DocumentsTransfer,
+    DocumentsTransferAcceptance,
     DocumentsTransferItem,
     DocumentsTransferType,
     EmbeddedSignature,
@@ -17,6 +23,9 @@ from .resources import (
     Folder,
     FolderItemsNamingPattern,
     Forge,
+    FormFieldType,
+    FormType,
+    FormTypeGroup,
     Issue,
     IssueAccesses,
     IssueAttachment,
@@ -28,19 +37,25 @@ from .resources import (
     Mchd,
     Permissions,
     Project,
+    ProjectForm,
+    ProjectFormFieldType,
+    ProjectFormType,
     ProjectUser,
     ProjectUserCustomRole,
     Review,
     ReviewGroup,
     ReviewItem,
+    ReviewProcess,
+    ReviewType,
     Share,
+    Slot,
     Storage,
     Tangl,
     UserLog,
     Version,
 )
 from .scopes import SCOPES_DEFAULT
-from .transport import DEFAULT_TIMEOUT, Transport
+from .transport import DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT, Transport
 
 
 class DocsApi:
@@ -62,13 +77,15 @@ class DocsApi:
                  client_id: str,
                  client_secret: str,
                  scopes: list[str] = SCOPES_DEFAULT,
-                 timeout: float = DEFAULT_TIMEOUT) -> None:
+                 timeout: float = DEFAULT_TIMEOUT,
+                 max_retries: int = DEFAULT_MAX_RETRIES) -> None:
         self._transport = Transport(
             client_id=client_id,
             client_secret=client_secret,
             scopes=[*scopes],
             base_url="https://api.sgnl.pro/public/v1",
-            timeout=timeout
+            timeout=timeout,
+            max_retries=max_retries
         )
 
         self.item = Item(self._transport)
@@ -111,6 +128,21 @@ class DocsApi:
         self.storage = Storage(self._transport)
         self.tangl = Tangl(self._transport)
         self.user_log = UserLog(self._transport)
+        self.attribute_type_list_items = AttributeTypeListItems(self._transport)
+        self.board = Board(self._transport)
+        self.booking = Booking(self._transport)
+        self.card = Card(self._transport)
+        self.card_group = CardGroup(self._transport)
+        self.documents_transfer_acceptance = DocumentsTransferAcceptance(self._transport)
+        self.form_field_type = FormFieldType(self._transport)
+        self.form_type = FormType(self._transport)
+        self.form_type_group = FormTypeGroup(self._transport)
+        self.project_form = ProjectForm(self._transport)
+        self.project_form_field_type = ProjectFormFieldType(self._transport)
+        self.project_form_type = ProjectFormType(self._transport)
+        self.review_process = ReviewProcess(self._transport)
+        self.review_type = ReviewType(self._transport)
+        self.slot = Slot(self._transport)
 
     @classmethod
     async def create(
@@ -119,13 +151,16 @@ class DocsApi:
             client_id: str,
             client_secret: str,
             scopes: list[str] = SCOPES_DEFAULT,
-            timeout: float = DEFAULT_TIMEOUT) -> "DocsApi":
+            timeout: float = DEFAULT_TIMEOUT,
+            max_retries: int = DEFAULT_MAX_RETRIES) -> "DocsApi":
         """Create and initialize a new DocsApi instance.
                Args:
                    client_id: Your SGNL DOCS API client ID
                    client_secret: Your SGNL DOCS API client secret
                    scopes: List of scopes
                    timeout: Request timeout in seconds, applied to connect/read/write/pool
+                   max_retries: How many times to retry a request that got 429 Too Many Requests,
+                       waiting for the Retry-After interval between attempts. 0 disables retries.
                Returns:
                    An initialized DocsApi instance
                Example:
@@ -136,7 +171,13 @@ class DocsApi:
                    )
                    ```
                """
-        instance = cls(client_id=client_id, client_secret=client_secret, scopes=scopes, timeout=timeout)
+        instance = cls(
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=scopes,
+            timeout=timeout,
+            max_retries=max_retries
+        )
         await instance._transport._ensure_token()
         return instance
 

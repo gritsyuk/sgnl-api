@@ -26,3 +26,10 @@ class Permissions:
         return await self._transport.request(
             method='GET', path='/permissions/tree', params={'projectId': project_id}
         )
+
+    async def delete(self, permission_id: UUID) -> None:
+        """
+        Deletes a specific permission.
+        Required scopes: docs:permissions:delete
+        """
+        return await self._transport.request(method='DELETE', path=f'/permissions/{permission_id}')

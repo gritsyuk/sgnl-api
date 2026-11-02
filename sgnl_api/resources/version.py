@@ -2,6 +2,7 @@ from uuid import UUID
 
 from ..decorators import extract_key_from_response
 from ..transport import Transport
+from ..utils import drop_none
 
 
 class Version:
@@ -35,7 +36,9 @@ class Version:
     @extract_key_from_response(key="data")
     async def count(
             self,
-            item_id: UUID
+            item_id: UUID,
+            take: int = None,
+            skip: int = None
     ) -> int:
         """
         Returns the count of item`s versions.
@@ -46,9 +49,7 @@ class Version:
         return await self._transport.request(
             method='GET',
             path='/versions/count',
-            params={
-                'itemId': item_id
-            }
+            params=drop_none(itemId=item_id, Take=take, Skip=skip)
         )
 
     async def find_batch(self, project_id: UUID, item_ids: list[UUID]) -> list[dict]:

@@ -2,6 +2,7 @@ from uuid import UUID
 
 from ..decorators import extract_key_from_response
 from ..transport import Transport
+from ..utils import drop_none
 
 
 class Project:
@@ -131,4 +132,36 @@ class Project:
         """
         return await self._transport.request(
             method='GET', path='/docs/projects/storage-id', params={'projectId': project_id}
+        )
+
+    async def update(
+            self,
+            *,
+            project_id: UUID,
+            name: str,
+            time_zone_offset: str,
+            code: str = None,
+            address: str = None,
+            lat: float = None,
+            lng: float = None,
+            is_default_for_new_users: bool = None
+    ) -> None:
+        """
+        Updates an existing project's basic information.
+        Required scopes: project:update
+        :param time_zone_offset: TimeZoneOffset value, e.g. "Utc", "UtcPlus3", "UtcMinus5"
+        """
+        return await self._transport.request(
+            method='PATCH',
+            path='/projects',
+            json=drop_none(
+                id=project_id,
+                name=name,
+                code=code,
+                address=address,
+                lat=lat,
+                lng=lng,
+                timeZoneOffset=time_zone_offset,
+                isDefaultForNewUsers=is_default_for_new_users
+            )
         )
