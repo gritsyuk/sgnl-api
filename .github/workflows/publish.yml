@@ -1,0 +1,54 @@
+# Publishes a package to PyPI when its release tag is pushed:
+#   git tag sgnl-api-v0.4.0 && git push origin sgnl-api-v0.4.0
+#   git tag sgnl-mcp-v0.1.0 && git push origin sgnl-mcp-v0.1.0
+# Uses PyPI trusted publishing: no tokens are stored anywhere. PyPI must list this
+# repository, this workflow file (publish.yml) and the environment "pypi" as a trusted
+# publisher for each package.
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "sgnl-api-v*"
+      - "sgnl-mcp-v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # needed for trusted publishing
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+
+      - name: Resolve package from tag
+        id: pkg
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in
+            sgnl-api-v*) name=sgnl-api; version="${tag#sgnl-api-v}"; manifest=pyproject.toml ;;
+            sgnl-mcp-v*) name=sgnl-mcp; version="${tag#sgnl-mcp-v}"; manifest=mcp/pyproject.toml ;;
+            *) echo "Unknown tag $tag"; exit 1 ;;
+          esac
+          actual=$(python3 -c "import tomllib; print(tomllib.load(open('$manifest', 'rb'))['project']['version'])")
+          if [ "$actual" != "$version" ]; then
+            echo "Tag says $version but $manifest has $actual"; exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: |
+          uv sync --all-packages
+          uv run pytest
+          uv run --package sgnl-mcp pytest mcp/tests
+
+      - name: Build
+        run: uv build --package ${{ steps.pkg.outputs.name }}
+
+      - name: Publish
+        run: uv publish --trusted-publishing always
