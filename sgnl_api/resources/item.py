@@ -153,21 +153,47 @@ class Item:
             }
         )
 
-    async def search(self, folder_id: UUID, name: str = None, suffixes: list[str] = None, take: int = 100, skip: int = 0) -> list[dict]:
+    async def search(
+            self,
+            folder_id: UUID,
+            name: str = None,
+            suffixes: list[str] = None,
+            take: int = 100,
+            skip: int = 0,
+            *,
+            ids: list[UUID] = None,
+            added_by: UUID = None,
+            modified_by: UUID = None,
+            added_from: str = None,
+            added_to: str = None,
+            modified_from: str = None,
+            modified_to: str = None
+    ) -> list[dict]:
         """
         Returns a folder`s nested items search result.
         Required scopes: docs:item:list
         :param folder_id: Identifier for search within the folder and its subfolders
         :param name: Filter by item name
         :param suffixes: Filter by file suffixes (e.g., extensions)
+        :param ids: Filter by item identifiers
+        :param added_from: ISO date-time; the other *_from / *_to bounds work the same way
         """
-        payload = {'folderId': folder_id}
-        if name is not None:
-            payload['name'] = name
-        if suffixes is not None:
-            payload['suffixes'] = suffixes
         return await self._transport.request(
-            method='POST', path='/items/search', params={'Take': take, 'Skip': skip}, json=payload
+            method='POST',
+            path='/items/search',
+            params={'Take': take, 'Skip': skip},
+            json=drop_none(
+                folderId=folder_id,
+                name=name,
+                suffixes=suffixes,
+                ids=ids,
+                addedBy=added_by,
+                modifiedBy=modified_by,
+                addedFrom=added_from,
+                addedTo=added_to,
+                modifiedFrom=modified_from,
+                modifiedTo=modified_to
+            )
         )
 
     async def get_item_version(self, id: UUID) -> dict:

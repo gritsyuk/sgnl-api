@@ -1,3 +1,7 @@
+from typing import Optional
+
+import httpx
+
 from .resources import (
     AcceptanceCertificate,
     ApplicationUser,
@@ -78,14 +82,16 @@ class DocsApi:
                  client_secret: str,
                  scopes: list[str] = SCOPES_DEFAULT,
                  timeout: float = DEFAULT_TIMEOUT,
-                 max_retries: int = DEFAULT_MAX_RETRIES) -> None:
+                 max_retries: int = DEFAULT_MAX_RETRIES,
+                 http_client: Optional[httpx.AsyncClient] = None) -> None:
         self._transport = Transport(
             client_id=client_id,
             client_secret=client_secret,
             scopes=[*scopes],
             base_url="https://api.sgnl.pro/public/v1",
             timeout=timeout,
-            max_retries=max_retries
+            max_retries=max_retries,
+            http_client=http_client
         )
 
         self.item = Item(self._transport)
@@ -152,7 +158,8 @@ class DocsApi:
             client_secret: str,
             scopes: list[str] = SCOPES_DEFAULT,
             timeout: float = DEFAULT_TIMEOUT,
-            max_retries: int = DEFAULT_MAX_RETRIES) -> "DocsApi":
+            max_retries: int = DEFAULT_MAX_RETRIES,
+            http_client: Optional[httpx.AsyncClient] = None) -> "DocsApi":
         """Create and initialize a new DocsApi instance.
                Args:
                    client_id: Your SGNL DOCS API client ID
@@ -161,6 +168,8 @@ class DocsApi:
                    timeout: Request timeout in seconds, applied to connect/read/write/pool
                    max_retries: How many times to retry a request that got 429 Too Many Requests,
                        waiting for the Retry-After interval between attempts. 0 disables retries.
+                   http_client: Your own httpx.AsyncClient, e.g. with a custom transport that filters or
+                       throttles requests. It is not closed by aclose(); its owner closes it.
                Returns:
                    An initialized DocsApi instance
                Example:
@@ -176,7 +185,8 @@ class DocsApi:
             client_secret=client_secret,
             scopes=scopes,
             timeout=timeout,
-            max_retries=max_retries
+            max_retries=max_retries,
+            http_client=http_client
         )
         await instance._transport._ensure_token()
         return instance

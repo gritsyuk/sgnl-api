@@ -87,7 +87,8 @@ class Transport:
             scopes: List[str],
             base_url: str,
             timeout: float = DEFAULT_TIMEOUT,
-            max_retries: int = DEFAULT_MAX_RETRIES) -> None:
+            max_retries: int = DEFAULT_MAX_RETRIES,
+            http_client: Optional[httpx.AsyncClient] = None) -> None:
         self.client_id = client_id
         self.client_secret = client_secret
         self.scopes = scopes
@@ -96,14 +97,18 @@ class Transport:
         self._jwt = None
         self._jwt_expires_at = None
         self._token_lock = asyncio.Lock()
-        self._client = httpx.AsyncClient(timeout=timeout)
+        # A caller-supplied client (e.g. one with its own httpx transport that filters or
+        # throttles requests) is used as is and stays owned by the caller.
+        self._owns_client = http_client is None
+        self._client = http_client if http_client is not None else httpx.AsyncClient(timeout=timeout)
 
     @property
     def client(self) -> httpx.AsyncClient:
         return self._client
 
     async def aclose(self) -> None:
-        await self._client.aclose()
+        if self._owns_client:
+            await self._client.aclose()
 
     async def _send(self, method: str, url: str, **kwargs) -> httpx.Response:
         """Sends a request, retrying on 429 up to ``max_retries`` times, honoring Retry-After.
@@ -125,6 +130,13 @@ class Transport:
             delay = DEFAULT_RETRY_AFTER if retry_after is None else retry_after
             await asyncio.sleep(min(delay, MAX_RETRY_AFTER))
             attempt += 1
+
+    async def _invalidate_token(self, rejected_jwt: Optional[str]) -> None:
+        async with self._token_lock:
+            # Only drop the token the server rejected; a concurrent request may already have refreshed it.
+            if self._jwt == rejected_jwt:
+                self._jwt = None
+                self._jwt_expires_at = None
 
     async def _ensure_token(self) -> None:
         async with self._token_lock:
@@ -167,24 +179,32 @@ class Transport:
             *,
             params: Optional[dict] = None,
             json: Union[dict, list, None] = None) -> Union[dict, list, str, int, None]:
-        await self._ensure_token()
+        content = _encode_json(json) if json is not None else None
 
-        headers = {
-            "accept": "application/json",
-            "Authorization": f"Bearer {self._jwt}"
-        }
-        content = None
-        if json is not None:
-            content = _encode_json(json)
-            headers["Content-Type"] = "application/json"
+        response = None
+        for attempt in range(2):
+            await self._ensure_token()
+            jwt = self._jwt
+            headers = {
+                "accept": "application/json",
+                "Authorization": f"Bearer {jwt}"
+            }
+            if content is not None:
+                headers["Content-Type"] = "application/json"
 
-        response = await self._send(
-            method,
-            f'{self.base_url}{path}',
-            params=params,
-            content=content,
-            headers=headers
-        )
+            response = await self._send(
+                method,
+                f'{self.base_url}{path}',
+                params=params,
+                content=content,
+                headers=headers
+            )
+            # A token revoked before its expiresIn: refresh once and resend. 401 means the request
+            # was rejected before processing, so resending is safe for writes too.
+            if response.status_code == 401 and attempt == 0:
+                await self._invalidate_token(jwt)
+                continue
+            break
 
         if response.is_success:
             if not response.content:

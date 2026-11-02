@@ -3,7 +3,7 @@ from uuid import UUID
 import httpx
 
 from ..exceptions import SgnlRequestError
-from ..file import read_file
+from ..file import file_info, iter_file
 from ..transport import Transport
 
 
@@ -50,26 +50,35 @@ class File:
             path=f'/objects/{object_id}/uploading/commit'
         )
 
-    async def upload(self, project_id: UUID, file_path: str) -> None:
-        file_info = await read_file(file_path)
-        if file_info is None:
-            raise FileNotFoundError(file_path)
-        file_data, mime_type, size = file_info
+    async def upload(self, project_id: UUID, file_path: str, mime_type: str = None) -> dict:
+        """
+        Uploads a local file as a committed object: gets an upload ticket, streams the file to the
+        signed S3 URL and commits it. Turn the object into a document with version.create and then
+        item.create_file (new document) or item.add_version (new version of an existing one).
+        Required scopes: docs:object:create
+        :param mime_type: overrides the type guessed from the file extension
+        :return: {"object_id", "mime_type", "size"}
+        """
+        mime_type, size = file_info(file_path, mime_type)
 
         object_upload = await self.get_object_upload(project_id, mime_type, size)
+        object_id = object_upload.get("object_id")
 
         try:
             upload_response = await self._transport.client.put(
                 object_upload.get("signed_url"),
-                content=file_data
+                content=iter_file(file_path),
+                headers={"Content-Length": str(size)}
             )
         except httpx.HTTPError as e:
-            raise SgnlRequestError(f"File upload failed: {e}") from e
+            raise SgnlRequestError(f"File upload of object {object_id} failed: {e}") from e
 
         if not upload_response.is_success:
             raise SgnlRequestError(
-                f"File upload failed with status {upload_response.status_code}: {upload_response.text}",
+                f"File upload of object {object_id} failed with status "
+                f"{upload_response.status_code}: {upload_response.text}",
                 status_code=upload_response.status_code
             )
 
-        return await self.commit_uploading(object_upload.get("object_id"))
+        await self.commit_uploading(object_id)
+        return {"object_id": object_id, "mime_type": mime_type, "size": size}
