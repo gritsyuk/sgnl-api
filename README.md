@@ -9,9 +9,9 @@
 | Пакет | Что это | Установка | Каталог |
 |---|---|---|---|
 | `sgnl-api` | Асинхронная Python-обёртка над всем SIGNAL Integration API | `pip install -U sgnl-api` | `sgnl_api/` |
-| `sgnl-mcp` | MCP-сервер: даёт LLM-агенту контролируемый доступ к SIGNAL — чтение без ограничений, запись только с подтверждением, удаление недоступно | `uvx sgnl-mcp` | [`mcp/`](mcp/README.md) |
+| `sgnl-mcp` | MCP-сервер: даёт LLM-агенту контролируемый доступ к SIGNAL — чтение без ограничений, запись только с подтверждением, удаление недоступно | `uvx sgnl-mcp` или Docker | [`mcp/`](mcp/README.md) |
 
-`sgnl-mcp` построен поверх `sgnl-api` и зависит от него; `sgnl-api` ничего не знает про MCP и не тянет его зависимости. Пакеты выпускаются на PyPI независимо. Настройка MCP-сервера и подключение к Claude — в [mcp/README.md](mcp/README.md).
+`sgnl-mcp` построен поверх `sgnl-api` и зависит от него; `sgnl-api` ничего не знает про MCP и не тянет его зависимости. Пакеты выпускаются на PyPI независимо. Настройка MCP-сервера, подключение к Claude и запуск в Docker — в [mcp/README.md](mcp/README.md).
 
 # sgnl-api — обёртка над API
 
@@ -108,6 +108,7 @@ uv sync --all-packages                     # оба пакета и dev-зави
 uv run pytest                              # тесты SDK
 uv run --package sgnl-mcp pytest mcp/tests # тесты MCP-сервера
 uv build --all-packages                    # sdist и wheel обоих пакетов в dist/
+docker build -f mcp/Dockerfile -t sgnl-mcp . # образ MCP-сервера
 ```
 
 ## Методы

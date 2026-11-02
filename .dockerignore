@@ -1,0 +1,12 @@
+# Only what mcp/Dockerfile copies is needed; never send secrets or local state.
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!sgnl_api/
+!mcp/pyproject.toml
+!mcp/README.md
+!mcp/sgnl_mcp/
+**/__pycache__
+**/*.pyc

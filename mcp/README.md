@@ -90,6 +90,58 @@ claude mcp add sgnl -e SGNL_CLIENT_ID=… -e SGNL_CLIENT_SECRET=… -e SGNL_MCP_
 
 Для профиля `write` добавьте `SGNL_MCP_ACTOR_USER_ID` и `SGNL_MCP_UPLOAD_ROOT`.
 
+## Запуск в Docker
+
+Образ собирается из корня репозитория (ему нужны оба пакета рабочего пространства):
+
+```bash
+docker build -f mcp/Dockerfile -t sgnl-mcp .
+```
+
+Сервер общается с клиентом через stdin/stdout, поэтому контейнер запускается с `-i`, а клиент сам стартует его на каждую сессию. Секреты удобно держать в env-файле, а не в конфигурации клиента. Например, `~/.sgnl-mcp.env`:
+
+```bash
+SGNL_CLIENT_ID=…
+SGNL_CLIENT_SECRET=…
+SGNL_MCP_PROFILE=read
+```
+
+**Claude Desktop** — `claude_desktop_config.json` (пути — абсолютные):
+
+```json
+{
+  "mcpServers": {
+    "sgnl": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm", "--init",
+        "--read-only", "--tmpfs", "/tmp",
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        "--env-file", "/Users/me/.sgnl-mcp.env",
+        "-v", "sgnl-mcp-data:/data",
+        "sgnl-mcp"
+      ]
+    }
+  }
+}
+```
+
+**Claude Code:**
+
+```bash
+claude mcp add sgnl -- docker run -i --rm --init --read-only --tmpfs /tmp --cap-drop ALL \
+  --security-opt no-new-privileges --env-file ~/.sgnl-mcp.env -v sgnl-mcp-data:/data sgnl-mcp
+```
+
+Что внутри образа:
+
+- Процесс работает от непривилегированного пользователя (uid 10001), зависимости зафиксированы `uv.lock`.
+- `/data` — том для журнала аудита (`audit.jsonl`) и журнала выполненных операций (`state.sqlite`). Именованный том `sgnl-mcp-data` сохраняет их между запусками; без него защита от повторов и аудит теряются при каждом перезапуске.
+- `/uploads` — каталог загрузки (`SGNL_MCP_UPLOAD_ROOT` уже указывает на него). Для профилей `write`/`workflow` смонтируйте туда папку с файлами **только на чтение**: `-v /path/to/outgoing:/uploads:ro`. Тогда агент физически не может ни изменить файлы на компьютере, ни прочитать что-то за пределами этой папки.
+- Файл `.env` в образ не попадает (`.dockerignore` пропускает только исходники пакетов).
+
+Флаги `--read-only`, `--cap-drop ALL` и `no-new-privileges` необязательны, но сервер с ними работает, и это ещё один рубеж: контейнер не может ничего записать, кроме `/data` и `/tmp`.
+
 ### Разрешения в клиенте
 - Инструменты чтения можно разрешить без вопросов.
 - Инструменты записи и Workflow **не добавляйте в «разрешить всегда»**: клиент должен спрашивать перед каждым вызовом. Это один из рубежей контроля.
