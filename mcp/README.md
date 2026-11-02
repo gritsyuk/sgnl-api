@@ -140,6 +140,14 @@ claude mcp add sgnl -- docker run -i --rm --init --read-only --tmpfs /tmp --cap-
   --security-opt no-new-privileges --env-file ~/.sgnl-mcp.env -v sgnl-mcp-data:/data sgnl-mcp
 ```
 
+**Windows.** В конфигурации Claude Desktop (`%APPDATA%\Claude\claude_desktop_config.json`) обратные слеши в путях удваиваются: `"--env-file", "C:\\Users\\Admin\\.sgnl-mcp.env"`, а папка для загрузки подключается как `"-v", "C:\\SIGNAL\\outgoing:/uploads:ro"`. В командной строке `cmd` вместо `/dev/null` используется `NUL`. Проверить, что образ запускается:
+
+```cmd
+docker run -i --rm --init ghcr.io/gritsyuk/sgnl-mcp:0.1.0 < NUL
+```
+
+Без учётных данных сервер сразу завершится с ошибкой проверки настроек (не заданы `SGNL_CLIENT_ID` / `SGNL_CLIENT_SECRET`) — значит, образ рабочий.
+
 Что внутри образа:
 
 - Процесс работает от непривилегированного пользователя (uid 10001), зависимости зафиксированы `uv.lock`.
