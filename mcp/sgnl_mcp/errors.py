@@ -31,6 +31,39 @@ class PolicyDenied(Exception):
         self.message = message
 
 
+class ScopeMissing(Exception):
+    """A request needs a scope the SIGNAL integration (the user's key) does not have.
+
+    ``scopes`` maps each refused scope to "missing" (not enabled for the integration) or
+    "unlicensed" (the company has no license for its module).
+    """
+
+    def __init__(self, scopes: dict, client_id: str = ""):
+        self.scopes = dict(scopes)
+        self.client_id = client_id
+        self.message = admin_message(self.scopes, client_id)
+        super().__init__(self.message)
+
+
+def admin_message(scopes: dict, client_id: str = "") -> str:
+    """A message the user can forward to the SIGNAL administrator as is."""
+    missing = sorted(s for s, why in scopes.items() if why != "unlicensed")
+    unlicensed = sorted(s for s, why in scopes.items() if why == "unlicensed")
+    key = f" (client_id {client_id})" if client_id else ""
+    lines = ["У вашего ключа SIGNAL ограниченные права, поэтому эта операция недоступна."]
+    if missing:
+        lines.append(
+            f"Передайте администратору SIGNAL: «В интеграции{key} включите scope: {', '.join(missing)}». "
+            "После этого перезапустите MCP-сервер."
+        )
+    if unlicensed:
+        lines.append(
+            f"Для scope {', '.join(unlicensed)} у компании нет лицензии на модуль SIGNAL: "
+            "передайте это администратору SIGNAL, вопрос решается с поддержкой SIGNAL."
+        )
+    return " ".join(lines)
+
+
 class BudgetExceeded(Exception):
     """Raised by the guarded transport when a tool call used up its REST request budget."""
 
@@ -39,6 +72,8 @@ def describe_api_error(error: Exception, *, writing: bool) -> ToolFailure:
     """Maps an SDK exception to a tool error code (spec section 6.1)."""
     if isinstance(error, ToolFailure):
         return error
+    if isinstance(error, ScopeMissing):
+        return ToolFailure("SCOPE_MISSING", error.message, {"missing_scopes": sorted(error.scopes)})
     if isinstance(error, PolicyDenied):
         return ToolFailure("POLICY_DENIED", error.message)
     if isinstance(error, BudgetExceeded):

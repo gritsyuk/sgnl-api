@@ -23,7 +23,9 @@ INSTRUCTIONS = (
     "the first returns a preview and a confirmation_token and changes nothing; show the preview to the user and "
     "call again with the token only after they agree. Sending a transfer and starting a review use a separate "
     "prepare_* tool, and the user confirms them in a dialog. Deleting, moving or renaming documents and folders "
-    "and changing permissions are not available. " + UNTRUSTED
+    "and changing permissions are not available. If a tool answers SCOPE_MISSING, the user's key lacks rights "
+    "that only a SIGNAL administrator can grant: show the user the error message as is (it is written for them "
+    "to forward) and do not retry. get_access_status tells in advance what the key cannot do. " + UNTRUSTED
 )
 
 Take = Annotated[int, Field(50, ge=1, le=200, description="Page size (max 200)")]
@@ -178,7 +180,12 @@ def build_server(settings: Settings, app: Optional[App] = None) -> tuple[MCPServ
                              lambda: context.get_document_context(app, project_id, document_id, include, mode),
                              budget=20)
 
-    for fn in (list_projects, get_project, get_project_folder_tree, search_documents, list_folder_documents,
+    async def get_access_status() -> dict[str, Any]:
+        """What this SIGNAL key may do: access profile, granted scopes, scopes the integration lacks, and a ready
+        message for the SIGNAL administrator if something is missing. Makes no request to SIGNAL."""
+        return {"success": True, **app.access_status()}
+
+    for fn in (get_access_status, list_projects, get_project, get_project_folder_tree, search_documents, list_folder_documents,
                list_document_versions, get_document_version, get_document_download_url, get_document_context):
         register(fn, Risk.READ, read_only=True)
 

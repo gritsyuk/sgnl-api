@@ -50,15 +50,27 @@ pip install sgnl-mcp
 | `SGNL_MCP_AUDIT_PATH` | нет | `~/.sgnl-mcp/audit.jsonl` | Журнал аудита |
 | `SGNL_MCP_STATE_PATH` | нет | `~/.sgnl-mcp/state.sqlite` | Журнал выполненных операций (защита от повторов) |
 
-При запуске сервер получает токен и проверяет, что интеграции выданы все права профиля, а для `write`/`workflow` — что пользователь `SGNL_MCP_ACTOR_USER_ID` есть в компании. Если что-то не так, сервер не запускается и пишет, чего не хватает.
+Пользователю нужен только ключ (`SGNL_CLIENT_ID` и `SGNL_CLIENT_SECRET`), scope он не задаёт: сервер сам запрашивает права своего профиля.
+
+Если в интеграции включены не все scope, сервер всё равно запускается, но без недостающих:
+- операции, которым они нужны, отвечают ошибкой `SCOPE_MISSING` с готовым текстом для администратора, например: «У вашего ключа SIGNAL ограниченные права… Передайте администратору SIGNAL: „В интеграции (client_id …) включите scope: docs:issue:list“»;
+- запрос в SIGNAL при этом не отправляется;
+- инструмент `get_access_status` заранее показывает, чего не хватает;
+- то же сообщение сервер пишет в свой журнал при запуске.
+
+Сервер не запускается, только если ключ неверный или в интеграции нет ни одного scope профиля. Для `write` и `workflow` при запуске проверяется, что пользователь `SGNL_MCP_ACTOR_USER_ID` есть в компании. Если для этой проверки нет `company:user:list`, запись недоступна, а чтение работает.
 
 ### Права интеграции по профилям
 
-| Профиль | Scopes, которые должны быть выданы интеграции в SIGNAL |
+Это раздел для администратора SIGNAL. Включите в интеграции эти scope, чтобы были доступны все инструменты профиля:
+
+| Профиль | Scopes интеграции в SIGNAL |
 |---|---|
-| `read` | `project:list`, `project:read`, `docs:folder:read`, `docs:folder:list`, `docs:item:list`, `docs:item:read`, `docs:version:list`, `docs:docs_transfer:list`, `docs:docs_transfer:read`, `docs:issue:list`, `docs:review:list`, `docs:signing:list`, `docs:attribute:list` |
+| `read` | `project:list`, `project:read`, `docs:folder:read`, `docs:item:list`, `docs:item:read`, `docs:version:list`, `docs:docs_transfer:list`, `docs:docs_transfer:read`, `docs:issue:list`, `docs:review:list`, `docs:signing:list`, `docs:attribute:list` |
 | `write` | всё из `read` + `company:user:list`, `docs:object:create`, `docs:version:create`, `docs:version:update`, `docs:item:create`, `docs:docs_transfer:create`, `docs:docs_transfer:update`, `docs:issue:update`, `docs:review:create`, `docs:review:update` |
 | `workflow` | то же, что `write` |
+
+Список составляется автоматически из запросов, которые разрешены профилю. Тест сверяет его со спецификацией SIGNAL, поэтому лишнего сервер не запросит. Обратите внимание: нужен `docs:issue:list`, а не `docs:issue:read`.
 
 Отправка передачи и запуск рассмотрения в SIGNAL используют те же права, что и их наполнение. Поэтому их отделяет сам MCP-сервер: в профиле `write` этих инструментов нет, а в `workflow` они всегда требуют подтверждения пользователя.
 
@@ -166,6 +178,7 @@ docker run -i --rm --init ghcr.io/gritsyuk/sgnl-mcp:0.1.0 < NUL
 
 | Инструмент | Профиль | Что делает |
 |---|---|---|
+| `get_access_status` | read | Что доступно ключу: профиль, недостающие scope и готовый текст для администратора SIGNAL (без запросов к SIGNAL) |
 | `list_projects` | read | Проекты, доступные интеграции |
 | `get_project` | read | Данные проекта и его корневая папка |
 | `get_project_folder_tree` | read | Дерево папок с правами пользователя |
@@ -220,6 +233,7 @@ docker run -i --rm --init ghcr.io/gritsyuk/sgnl-mcp:0.1.0 < NUL
 | `INVALID_REQUEST`, `NOT_FOUND`, `FORBIDDEN`, `AUTH_FAILED`, `QUOTA_EXCEEDED`, `RATE_LIMITED` | Ответ SIGNAL (400, 404, 403, 401, 450, 429) |
 | `SERVER_ERROR`, `NETWORK_ERROR`, `TIMEOUT` | SIGNAL не ответил нормально; чтение можно повторить |
 | `OUTCOME_UNKNOWN` | Запись могла пройти или не пройти; сервер её не повторял |
+| `SCOPE_MISSING` | В интеграции ключа не включён нужный scope или у компании нет лицензии. В `message` — текст для администратора SIGNAL, в `details.missing_scopes` — список scope |
 | `POLICY_DENIED` | Запрос запрещён политикой MCP-сервера |
 | `CONFIRMATION_INVALID`, `CONFIRMATION_DECLINED` | Токен недействителен или пользователь не подтвердил |
 | `INVALID_STATE`, `NOTHING_TO_DO`, `UPLOAD_FAILED`, `BUDGET_EXCEEDED` | Объект в неподходящем состоянии, изменять нечего, файл не передан, исчерпан бюджет запросов |

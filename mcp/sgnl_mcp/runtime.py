@@ -1,19 +1,20 @@
 """Runtime shared by all tools: SDK client behind the guarded transport, audit, confirmations, cache."""
 import asyncio
 import json
+import sys
 import time
 import uuid
 from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
-from sgnl_api import DocsApi, SgnlApiError
+from sgnl_api import DocsApi, SgnlApiError, SgnlLicenseError, SgnlScopeError
 
 from .audit import AuditLog
 from .config import Settings
 from .confirm import ConfirmationStore, fingerprint
-from .errors import ToolFailure, describe_api_error
-from .guard import CallScope, GuardedTransport, current_scope
+from .errors import ToolFailure, admin_message, describe_api_error
+from .guard import ACTOR_CHECK_SCOPE, CallScope, GuardedTransport, current_scope
 from .profiles import Profile, Risk, scopes_for
 
 Prepare = Callable[[], Awaitable[tuple[Any, Any]]]
@@ -31,6 +32,7 @@ class App:
             burst=settings.burst,
             max_concurrency=settings.max_concurrency,
             inner=inner_transport,
+            client_id=settings.client_id,
         )
         self.http = httpx.AsyncClient(transport=self.guard, timeout=settings.http_timeout)
         self.api = DocsApi(
@@ -48,22 +50,49 @@ class App:
     # lifecycle ---------------------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Gets a token for the profile's scopes and checks the action author. Fails loudly, never half-starts."""
+        """Gets a token and checks the action author. Fails loudly, never half-starts.
+
+        The token is requested with every scope of the profile. If the integration lacks some, the
+        server starts without them: requests that need them are answered with SCOPE_MISSING and a
+        message for the SIGNAL administrator, and the gap is reported here on stderr.
+        """
         try:
             await self.api._transport._ensure_token()
+        except (SgnlScopeError, SgnlLicenseError) as e:
+            refused = {s: "missing" for s in e.missing_scopes}
+            refused.update({s: "unlicensed" for s in e.unlicensed_scopes})
+            granted = [s for s in self.api._transport.scopes if s not in refused]
+            if not refused or not granted:
+                raise self._auth_failure(e) from e
+            self.guard.unavailable_scopes = refused
+            self.api._transport.scopes = granted
+            try:
+                await self.api._transport._ensure_token()
+            except SgnlApiError as again:
+                raise self._auth_failure(again) from again
+            print(f"sgnl-mcp: started with limited rights. {admin_message(refused, self.settings.client_id)}",
+                  file=sys.stderr)
         except SgnlApiError as e:
-            missing = getattr(e, "missing_scopes", ()) + getattr(e, "unlicensed_scopes", ())
-            if missing:
-                raise RuntimeError(
-                    f"Cannot authenticate with SIGNAL for profile '{self.profile.name.lower()}': {e.message}"
-                ) from e
-            raise RuntimeError(
-                f"Cannot authenticate with SIGNAL for profile '{self.profile.name.lower()}'. "
-                f"Check SGNL_CLIENT_ID / SGNL_CLIENT_SECRET and that the client has these scopes: "
-                f"{', '.join(scopes_for(self.profile))}. Server answer: {e.message[:300]}"
-            ) from e
-        if self.profile >= Profile.WRITE:
+            raise self._auth_failure(e) from e
+        if self.profile >= Profile.WRITE and ACTOR_CHECK_SCOPE not in self.guard.unavailable_scopes:
             await self._check_actor()
+
+    def _auth_failure(self, error: SgnlApiError) -> RuntimeError:
+        return RuntimeError(
+            f"Cannot authenticate with SIGNAL for profile '{self.profile.name.lower()}' "
+            f"(client_id {self.settings.client_id}): {error.message[:500]}"
+        )
+
+    def access_status(self) -> dict:
+        """What this key can do: for the agent to explain gaps before the user hits them."""
+        unavailable = dict(self.guard.unavailable_scopes)
+        return {
+            "profile": self.profile.name.lower(),
+            "client_id": self.settings.client_id,
+            "granted_scopes": list(self.api._transport.scopes),
+            "unavailable_scopes": unavailable,
+            "message_for_admin": admin_message(unavailable, self.settings.client_id) if unavailable else None,
+        }
 
     async def _check_actor(self) -> None:
         actor = str(self.settings.actor_user_id)
@@ -130,7 +159,7 @@ class App:
             envelope = self._error(request_id, ToolFailure(code, "The tool did not finish in time"))
         except Exception as error:  # noqa: BLE001 - every failure becomes a structured answer
             failure = describe_api_error(error, writing=writing)
-            if failure.code == "POLICY_DENIED":
+            if failure.code in ("POLICY_DENIED", "SCOPE_MISSING"):
                 self.audit.write({"tool": tool, "risk": risk.name.lower(), "profile": self.profile.name.lower(),
                                   "stage": "guard", "outcome": "denied", "error": failure.message,
                                   "request_id": request_id})

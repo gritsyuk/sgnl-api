@@ -6,7 +6,9 @@ It enforces, in order:
 2. no "deleted" field anywhere in the body of a write request (soft delete through an update);
 3. external hosts only for the S3 upload PUT, and only while an upload service has opened that window;
 4. the REST request budget of the current tool call;
-5. a process-wide rate limit (token bucket) and a cap on parallel requests.
+5. a process-wide rate limit (token bucket) and a cap on parallel requests;
+6. scopes the integration refused at startup: a request that needs one is answered with
+   SCOPE_MISSING and a message for the SIGNAL administrator, without calling the API.
 """
 import asyncio
 import contextvars
@@ -19,77 +21,92 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .errors import BudgetExceeded, PolicyDenied
+from .errors import BudgetExceeded, PolicyDenied, ScopeMissing
 from .profiles import Profile, Risk
 
 ID = r"[^/]+"
 
-# (method, path regex relative to the API base, risk). The risk decides the minimal profile.
-ROUTES: tuple[tuple[str, str, Risk], ...] = (
-    ("POST", r"/auth/token", Risk.READ),
+# (method, path regex relative to the API base, risk, scope). The risk decides the minimal profile;
+# the scope is the one the API spec names for the route ("Required scopes"), and the profile's token
+# is requested with exactly the scopes of its routes.
+ROUTES: tuple[tuple[str, str, Risk, Optional[str]], ...] = (
+    ("POST", r"/auth/token", Risk.READ, None),
     # projects and folders
-    ("GET", r"/projects", Risk.READ),
-    ("GET", rf"/projects/{ID}", Risk.READ),
-    ("GET", rf"/docs/projects/{ID}", Risk.READ),
-    ("GET", rf"/projects/{ID}/folders/tree", Risk.READ),
+    ("GET", r"/projects", Risk.READ, "project:list"),
+    ("GET", rf"/projects/{ID}", Risk.READ, "project:read"),
+    ("GET", rf"/docs/projects/{ID}", Risk.READ, "project:read"),
+    ("GET", rf"/projects/{ID}/folders/tree", Risk.READ, "docs:folder:read"),
     # documents and versions
-    ("POST", r"/items/search", Risk.READ),
-    ("GET", r"/items", Risk.READ),
-    ("GET", r"/items/count", Risk.READ),
-    ("GET", r"/items/item-version", Risk.READ),
-    ("GET", r"/items/download", Risk.READ),
-    ("GET", r"/versions", Risk.READ),
+    ("POST", r"/items/search", Risk.READ, "docs:item:list"),
+    ("GET", r"/items", Risk.READ, "docs:item:list"),
+    ("GET", r"/items/count", Risk.READ, "docs:item:list"),
+    ("GET", r"/items/item-version", Risk.READ, "docs:item:read"),
+    ("GET", r"/items/download", Risk.READ, "docs:item:read"),
+    ("GET", r"/versions", Risk.READ, "docs:version:list"),
     # document context
-    ("POST", r"/attributes/types", Risk.READ),
-    ("POST", r"/attributes/values/items", Risk.READ),
-    ("GET", r"/cades/signatures", Risk.READ),
-    ("GET", r"/embedded/signatures", Risk.READ),
+    ("POST", r"/attributes/types", Risk.READ, "docs:attribute:list"),
+    ("POST", r"/attributes/values/items", Risk.READ, "docs:attribute:list"),
+    ("GET", r"/cades/signatures", Risk.READ, "docs:signing:list"),
+    ("GET", r"/embedded/signatures", Risk.READ, "docs:signing:list"),
     # transfers
-    ("POST", r"/documents-transfers", Risk.READ),
-    ("GET", r"/documents-transfers", Risk.READ),
-    ("POST", r"/documents-transfers/count", Risk.READ),
-    ("POST", r"/documents-transfers/types", Risk.READ),
-    ("POST", r"/documents-transfer-items", Risk.READ),
-    ("POST", r"/documents-transfer-items/count", Risk.READ),
+    ("POST", r"/documents-transfers", Risk.READ, "docs:docs_transfer:list"),
+    ("GET", r"/documents-transfers", Risk.READ, "docs:docs_transfer:read"),
+    ("POST", r"/documents-transfers/count", Risk.READ, "docs:docs_transfer:list"),
+    ("POST", r"/documents-transfers/types", Risk.READ, "docs:docs_transfer:list"),
+    ("POST", r"/documents-transfer-items", Risk.READ, "docs:docs_transfer:list"),
+    ("POST", r"/documents-transfer-items/count", Risk.READ, "docs:docs_transfer:list"),
     # issues
-    ("POST", r"/issues", Risk.READ),
-    ("POST", r"/issues/count", Risk.READ),
-    ("POST", r"/issues/types", Risk.READ),
+    ("POST", r"/issues", Risk.READ, "docs:issue:list"),
+    ("POST", r"/issues/count", Risk.READ, "docs:issue:list"),
+    ("POST", r"/issues/types", Risk.READ, "docs:issue:list"),
     # reviews
-    ("POST", r"/reviews", Risk.READ),
-    ("POST", r"/reviews/count", Risk.READ),
-    ("POST", r"/reviews/versions", Risk.READ),
-    ("POST", r"/reviews/versions/item-versions", Risk.READ),
-    ("POST", r"/reviews/items", Risk.READ),
-    ("GET", r"/reviews/types/names", Risk.READ),
+    ("POST", r"/reviews", Risk.READ, "docs:review:list"),
+    ("POST", r"/reviews/count", Risk.READ, "docs:review:list"),
+    ("POST", r"/reviews/versions", Risk.READ, "docs:review:list"),
+    ("POST", r"/reviews/versions/item-versions", Risk.READ, "docs:review:list"),
+    ("POST", r"/reviews/items", Risk.READ, "docs:review:list"),
+    ("GET", r"/reviews/types/names", Risk.READ, "docs:review:list"),
     # write profile: checks
-    ("GET", r"/company/users", Risk.WRITE),
-    ("GET", r"/naming-patterns/folder-items/find", Risk.WRITE),
+    ("GET", r"/company/users", Risk.WRITE, "company:user:list"),
+    ("GET", r"/naming-patterns/folder-items/find", Risk.WRITE, "docs:item:create"),
     # write profile: changes
-    ("PUT", r"/objects", Risk.WRITE),
-    ("POST", rf"/objects/{ID}/uploading/commit", Risk.WRITE),
-    ("POST", r"/versions", Risk.WRITE),
-    ("PUT", r"/items/file", Risk.WRITE),
-    ("PUT", r"/items/versions", Risk.WRITE),
-    ("PATCH", r"/items/versions/update", Risk.WRITE),
-    ("POST", r"/documents-transfers/create", Risk.WRITE),
-    ("POST", r"/documents-transfer-items/add", Risk.WRITE),
-    ("PATCH", r"/issues", Risk.WRITE),
-    ("POST", r"/reviews/create", Risk.WRITE),
-    ("POST", r"/reviews/items/add", Risk.WRITE),
+    ("PUT", r"/objects", Risk.WRITE, "docs:object:create"),
+    ("POST", rf"/objects/{ID}/uploading/commit", Risk.WRITE, "docs:object:create"),
+    ("POST", r"/versions", Risk.WRITE, "docs:version:create"),
+    ("PUT", r"/items/file", Risk.WRITE, "docs:item:create"),
+    ("PUT", r"/items/versions", Risk.WRITE, "docs:version:create"),
+    ("PATCH", r"/items/versions/update", Risk.WRITE, "docs:version:update"),
+    ("POST", r"/documents-transfers/create", Risk.WRITE, "docs:docs_transfer:create"),
+    ("POST", r"/documents-transfer-items/add", Risk.WRITE, "docs:docs_transfer:update"),
+    ("PATCH", r"/issues", Risk.WRITE, "docs:issue:update"),
+    ("POST", r"/reviews/create", Risk.WRITE, "docs:review:create"),
+    ("POST", r"/reviews/items/add", Risk.WRITE, "docs:review:update"),
     # workflow profile
-    ("POST", r"/documents-transfer-acceptances/send", Risk.WORKFLOW),
-    ("POST", r"/reviews/process/start", Risk.WORKFLOW),
+    ("POST", r"/documents-transfer-acceptances/send", Risk.WORKFLOW, "docs:docs_transfer:update"),
+    ("POST", r"/reviews/process/start", Risk.WORKFLOW, "docs:review:update"),
 )
 
-_COMPILED = tuple((method, re.compile(pattern + r"/?"), risk) for method, pattern, risk in ROUTES)
+_COMPILED = tuple((method, re.compile(pattern + r"/?"), risk, scope) for method, pattern, risk, scope in ROUTES)
+
+# Every write first checks the action author in the company user list (App._check_actor).
+ACTOR_CHECK_SCOPE = "company:user:list"
+
+
+def route_for(method: str, path: str) -> Optional[tuple[Risk, Optional[str]]]:
+    for allowed_method, pattern, risk, scope in _COMPILED:
+        if method == allowed_method and pattern.fullmatch(path):
+            return risk, scope
+    return None
 
 
 def route_risk(method: str, path: str) -> Optional[Risk]:
-    for allowed_method, pattern, risk in _COMPILED:
-        if method == allowed_method and pattern.fullmatch(path):
-            return risk
-    return None
+    route = route_for(method, path)
+    return route[0] if route else None
+
+
+def scopes_for(profile: Profile) -> list[str]:
+    """The scopes a profile's token is requested with: those of the routes the profile may call."""
+    return sorted({scope for _, _, risk, scope in ROUTES if scope and profile.allows(risk)})
 
 
 def contains_key(value, key: str) -> bool:
@@ -146,7 +163,8 @@ class GuardedTransport(httpx.AsyncBaseTransport):
             rate_per_sec: float,
             burst: int,
             max_concurrency: int,
-            inner: Optional[httpx.AsyncBaseTransport] = None):
+            inner: Optional[httpx.AsyncBaseTransport] = None,
+            client_id: str = ""):
         parts = urlsplit(base_url)
         self.api_host = parts.netloc
         self.api_prefix = parts.path.rstrip("/")
@@ -154,6 +172,9 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         self.inner = inner or httpx.AsyncHTTPTransport()
         self.bucket = TokenBucket(rate_per_sec, burst)
         self.semaphore = asyncio.Semaphore(max_concurrency)
+        self.client_id = client_id
+        # Scopes the integration refused at startup -> "missing" (not enabled) or "unlicensed".
+        self.unavailable_scopes: dict[str, str] = {}
 
     def is_api(self, request: httpx.Request) -> bool:
         host = request.url.host if request.url.port is None else f"{request.url.host}:{request.url.port}"
@@ -172,11 +193,18 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         if not path.startswith(self.api_prefix + "/"):
             raise PolicyDenied(f"{method} {path} is outside the API")
         relative = path[len(self.api_prefix):]
-        risk = route_risk(method, relative)
-        if risk is None:
+        route = route_for(method, relative)
+        if route is None:
             raise PolicyDenied(f"{method} {relative} is not on the allowlist")
+        risk, scope = route
         if not self.profile.allows(risk):
             raise PolicyDenied(f"{method} {relative} needs the {risk.name.lower()} profile")
+        needed = [scope] if scope else []
+        if risk >= Risk.WRITE:
+            needed.append(ACTOR_CHECK_SCOPE)
+        refused = {s: self.unavailable_scopes[s] for s in needed if s in self.unavailable_scopes}
+        if refused:
+            raise ScopeMissing(refused, self.client_id)
         if risk >= Risk.WRITE and request.content:
             try:
                 body = json.loads(request.content)

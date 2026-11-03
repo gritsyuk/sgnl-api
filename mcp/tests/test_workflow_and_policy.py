@@ -10,7 +10,7 @@ from mcp.shared.exceptions import MCPError
 from conftest import TRANSFER, accept_elicitation, call, decline_elicitation
 from sgnl_mcp.errors import PolicyDenied
 from sgnl_mcp.guard import ROUTES, GuardedTransport
-from sgnl_mcp.profiles import Profile, Risk, READ_SCOPES, scopes_for
+from sgnl_mcp.profiles import Profile, Risk, scopes_for
 
 SPEC = Path(__file__).resolve().parents[2] / "openapi" / "schema.yml"
 SEND = dict(transfer_id=TRANSFER, recipient_type="User", recipient_identifier="user-42")
@@ -88,7 +88,7 @@ async def test_tools_registered_per_profile(connect):
     for profile in ("read", "write", "workflow"):
         async with connect(profile) as c:
             names[profile] = {t.name: t for t in (await c.list_tools()).tools}
-    assert len(names["read"]) == 18 and len(names["write"]) == 26 and len(names["workflow"]) == 30
+    assert len(names["read"]) == 19 and len(names["write"]) == 27 and len(names["workflow"]) == 31
     assert "update_issues" not in names["read"] and "send_document_transfer" not in names["write"]
     forbidden = re.compile(r"delete|remove|move|rename|permission", re.I)
     assert not [n for n in names["workflow"] if forbidden.search(n)]
@@ -155,16 +155,19 @@ def test_allowlist_has_no_delete_and_matches_spec():
             scopes = re.findall(r"`([a-z_:]+)`", op.get("description") or "")
             operations[(method.upper(), pattern)] = (op, scopes)
 
-    for method, route, risk in ROUTES:
+    for method, route, risk, scope in ROUTES:
         matches = [v for (m, p), v in operations.items() if m == method and p == route]
         assert matches, f"{method} {route} is not in the API spec"
         _, required = matches[0]
         if route == "/auth/token":
+            assert scope is None
             continue
+        assert required == [scope], f"{method} {route}: the spec requires {required}, ROUTES says {scope}"
         profile = Profile(int(risk))
-        assert set(required) <= set(scopes_for(profile)), f"{method} {route} needs {required}"
+        assert scope in scopes_for(profile)
         if risk == Risk.READ:
-            assert set(required) <= set(READ_SCOPES), f"read route {method} {route} needs a write scope"
+            assert scope in scopes_for(Profile.READ)
+            assert not scope.endswith((":create", ":update", ":delete")), f"read route {method} {route} needs {scope}"
 
 
 def test_no_profile_requests_delete_scopes():
