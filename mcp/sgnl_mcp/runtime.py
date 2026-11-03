@@ -52,6 +52,11 @@ class App:
         try:
             await self.api._transport._ensure_token()
         except SgnlApiError as e:
+            missing = getattr(e, "missing_scopes", ()) + getattr(e, "unlicensed_scopes", ())
+            if missing:
+                raise RuntimeError(
+                    f"Cannot authenticate with SIGNAL for profile '{self.profile.name.lower()}': {e.message}"
+                ) from e
             raise RuntimeError(
                 f"Cannot authenticate with SIGNAL for profile '{self.profile.name.lower()}'. "
                 f"Check SGNL_CLIENT_ID / SGNL_CLIENT_SECRET and that the client has these scopes: "

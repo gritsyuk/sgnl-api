@@ -161,10 +161,78 @@ def test_scopes_are_required_and_checked():
     assert api._transport.scopes == ["project:list", "project:read"]
 
 
+def token_server(enabled, unlicensed=(), status=422):
+    """A fake /auth/token that issues a token only if every scope is enabled and licensed."""
+    sent = []
+
+    def handler(request):
+        scopes = json.loads(request.content)["scopes"]
+        sent.append(scopes)
+        if any(sc not in enabled for sc in scopes):
+            return httpx.Response(status, json="ScopeError")
+        if any(sc in unlicensed for sc in scopes):
+            return httpx.Response(status, json="LicenseError")
+        return httpx.Response(200, json={"token": "t", "expiresIn": 3600})
+
+    return handler, sent
+
+
+READ = ["project:list", "project:read", "docs:folder:read", "docs:folder:list", "docs:item:list",
+        "docs:item:read", "docs:version:list", "docs:docs_transfer:list", "docs:docs_transfer:read",
+        "docs:issue:list", "docs:review:list", "docs:signing:list", "docs:attribute:list"]
+
+
+async def create_with(handler, scopes):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        return await DocsApi.create(client_id="id", client_secret="secret", scopes=scopes, http_client=client)
+
+
+async def test_scope_error_names_the_missing_scopes():
+    enabled = set(READ) - {"docs:issue:list", "docs:signing:list"}
+    handler, sent = token_server(enabled)
+    with pytest.raises(SgnlScopeError, match="not enabled for the integration: docs:issue:list, docs:signing:list") as info:
+        await create_with(handler, READ)
+    assert info.value.missing_scopes == ("docs:issue:list", "docs:signing:list")
+    assert info.value.requested_scopes == tuple(READ)
+    assert sent[0] == READ
+    assert len(sent) <= 2 * len(READ) + 1
+
+
+async def test_license_error_names_the_unlicensed_scopes():
+    handler, _ = token_server(set(READ), unlicensed={"docs:issue:list"})
+    with pytest.raises(SgnlLicenseError, match="no license for: docs:issue:list") as info:
+        await create_with(handler, READ)
+    assert info.value.unlicensed_scopes == ("docs:issue:list",)
+    assert info.value.missing_scopes == ()
+
+
+async def test_missing_and_unlicensed_together():
+    enabled = set(READ) - {"docs:review:list"}
+    handler, _ = token_server(enabled, unlicensed={"docs:issue:list"})
+    with pytest.raises(SgnlScopeError) as info:
+        await create_with(handler, READ)
+    assert info.value.missing_scopes == ("docs:review:list",)
+    assert info.value.unlicensed_scopes == ("docs:issue:list",)
+
+
+async def test_diagnosis_gives_up_quietly_on_rate_limit():
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(422, json="ScopeError")
+        return httpx.Response(429, headers={"Retry-After": "0"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(SgnlScopeError, match="Requested: project:list, project:read") as info:
+            await DocsApi.create(client_id="id", client_secret="secret", scopes=["project:list", "project:read"],
+                                 http_client=client, max_retries=0)
+    assert info.value.missing_scopes == ()
+
+
 @pytest.mark.parametrize("code, error_class, hint", [
-    ("ScopeError", SgnlScopeError, "Requested: project:list, docs:folder:create"),
     ("CredentialError", SgnlCredentialError, "invalid client id or client secret"),
-    ("LicenseError", SgnlLicenseError, "no license"),
     ("UnknownError", SgnlAuthenticationError, "UnknownError"),
 ])
 async def test_refused_token_names_the_reason(code, error_class, hint):
@@ -179,9 +247,7 @@ async def test_refused_token_names_the_reason(code, error_class, hint):
             await DocsApi.create(client_id="id", client_secret="secret",
                                  scopes=["project:list", "docs:folder:create"], http_client=client)
     assert info.type is error_class
-    assert sent[0]["scopes"] == ["project:list", "docs:folder:create"]
-    if error_class is SgnlScopeError:
-        assert info.value.requested_scopes == ("project:list", "docs:folder:create")
+    assert len(sent) == 1
 
 
 async def test_forbidden_mentions_token_scopes(fake, api):

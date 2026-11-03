@@ -2,7 +2,7 @@ import asyncio
 import json as jsonlib
 from datetime import date, datetime, timedelta
 from uuid import UUID
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 import httpx
 
@@ -47,6 +47,19 @@ _STATUS_REASONS = {
     429: "Too many requests",
     450: "Maximum resource quota reached. To increase the quota, contact support",
 }
+
+
+# Diagnosing a refused scope list costs up to 2 token requests per scope; longer lists are not probed.
+_MAX_SCOPES_TO_DIAGNOSE = 40
+
+
+def _token_error_code(response: httpx.Response) -> Optional[str]:
+    """The AuthTokenError code SIGNAL returns with 422: ScopeError, CredentialError, LicenseError, ..."""
+    try:
+        code = response.json()
+    except ValueError:
+        return None
+    return code if isinstance(code, str) else None
 
 
 def _error_class_for(status_code: int) -> type:
@@ -142,14 +155,78 @@ class Transport:
                 self._jwt = None
                 self._jwt_expires_at = None
 
-    def _auth_error(self, response: httpx.Response) -> SgnlAuthenticationError:
-        """Turns a refused token request into an exception that says what to fix."""
+    async def _post_token(self, scopes: List[str]) -> httpx.Response:
         try:
-            code = response.json()
-        except ValueError:
-            code = None
+            return await self._send(
+                'POST',
+                f'{self.base_url}/auth/token',
+                json={
+                    "clientId": self.client_id,
+                    "clientSecret": self.client_secret,
+                    "scopes": scopes
+                },
+                headers={'Content-Type': 'application/json'}
+            )
+        except SgnlRequestError as e:
+            raise SgnlAuthenticationError(f"Authentication failed: {e}") from e
+
+    async def _find_refused_scopes(self) -> Optional[Tuple[List[str], List[str]]]:
+        """Works out which scopes SIGNAL refuses, since its answer ("ScopeError") does not say.
+
+        Asks for tokens on halves of the list, splitting only the halves that are refused, so one
+        missing scope out of 13 costs about 8 requests. Returns (not enabled for the integration,
+        not licensed), or None if the check could not finish (rate limit, other error, long list).
+        """
+        if len(self.scopes) > _MAX_SCOPES_TO_DIAGNOSE:
+            return None
+        missing: List[str] = []
+        unlicensed: List[str] = []
+        requests_left = 2 * len(self.scopes)
+
+        async def check(group: List[str]) -> bool:
+            nonlocal requests_left
+            if requests_left <= 0:
+                return False
+            requests_left -= 1
+            response = await self._post_token(group)
+            if response.is_success:
+                return True
+            code = _token_error_code(response)
+            if code not in ("ScopeError", "LicenseError"):
+                return False
+            if len(group) == 1:
+                (missing if code == "ScopeError" else unlicensed).append(group[0])
+                return True
+            middle = len(group) // 2
+            return await check(group[:middle]) and await check(group[middle:])
+
+        try:
+            finished = await check(list(self.scopes))
+        except SgnlApiError:
+            return None
+        if not finished or not (missing or unlicensed):
+            return None
+        return missing, unlicensed
+
+    async def _auth_error(self, response: httpx.Response) -> SgnlAuthenticationError:
+        """Turns a refused token request into an exception that says what to fix."""
+        code = _token_error_code(response)
         status = response.status_code
         requested = ", ".join(self.scopes)
+        if code in ("ScopeError", "LicenseError"):
+            found = await self._find_refused_scopes()
+            if found is not None:
+                missing, unlicensed = found
+                parts = []
+                if missing:
+                    parts.append(f"not enabled for the integration: {', '.join(missing)}. Enable them in "
+                                 f"SIGNAL (\"Редактировать интеграцию\") or remove them from scopes")
+                if unlicensed:
+                    parts.append(f"the company has no license for: {', '.join(unlicensed)}")
+                message = "SIGNAL refused the token, " + "; ".join(parts) + "."
+                error_class = SgnlScopeError if missing else SgnlLicenseError
+                return error_class(message, status_code=status, requested_scopes=tuple(self.scopes),
+                                   missing_scopes=tuple(missing), unlicensed_scopes=tuple(unlicensed))
         if code == "ScopeError":
             return SgnlScopeError(
                 f"SIGNAL refused the token: the integration does not have every requested scope. "
@@ -166,7 +243,7 @@ class Transport:
             return SgnlLicenseError(
                 f"SIGNAL refused the token: the company has no license for a module of one of the "
                 f"requested scopes. Requested: {requested}.",
-                status_code=status
+                status_code=status, requested_scopes=tuple(self.scopes)
             )
         return SgnlAuthenticationError(
             f"Authentication failed with status {status}: {response.text}",
@@ -177,19 +254,7 @@ class Transport:
         async with self._token_lock:
             if self._jwt is not None and self._jwt_expires_at and datetime.now() < self._jwt_expires_at:
                 return
-            try:
-                response = await self._send(
-                    'POST',
-                    f'{self.base_url}/auth/token',
-                    json={
-                        "clientId": self.client_id,
-                        "clientSecret": self.client_secret,
-                        "scopes": self.scopes
-                    },
-                    headers={'Content-Type': 'application/json'}
-                )
-            except SgnlRequestError as e:
-                raise SgnlAuthenticationError(f"Authentication failed: {e}") from e
+            response = await self._post_token(self.scopes)
 
             if response.status_code == 429:
                 raise SgnlRateLimitError(
@@ -197,7 +262,7 @@ class Transport:
                     retry_after=_parse_retry_after(response)
                 )
             if not response.is_success:
-                raise self._auth_error(response)
+                raise await self._auth_error(response)
 
             data = response.json()
             self._jwt = data.get('token')
