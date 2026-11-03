@@ -1,5 +1,6 @@
 """MCP server: registers the tools the configured profile allows and runs them through the App runtime."""
 import contextlib
+import logging
 import sys
 from datetime import date
 from typing import Annotated, Any, Literal, Optional
@@ -482,6 +483,9 @@ def main() -> None:
         settings = Settings()
     except ValidationError as e:
         sys.exit(describe_settings_error(e))
+    # httpx logs every request at INFO; the client's MCP log would fill with URLs. The audit log
+    # already records each call with its requests, so only httpx warnings go to stderr.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     server, _ = build_server(settings)
     try:
         server.run("stdio")
