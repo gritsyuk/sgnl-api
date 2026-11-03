@@ -12,7 +12,8 @@ async def main():
 
     async with await DocsApi.create(
         client_id=CLIENT_ID,
-        client_secret=SECRET_ID
+        client_secret=SECRET_ID,
+        scopes=["project:read"],  # exactly the scopes enabled for the integration in SIGNAL
     ) as docs:
 
         folder_root = await docs.project.root_folder("0289d9ce-2b30-46c1-a567-4a6a31794871")

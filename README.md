@@ -36,7 +36,8 @@ async def main():
 
     async with await DocsApi.create(
         client_id=CLIENT_ID,
-        client_secret=SECRET_ID
+        client_secret=SECRET_ID,
+        scopes=["project:list"],  # ровно те scope, что включены в интеграции
     ) as docs:
         projects = await docs.project.get_list()
         for project in projects:
@@ -48,6 +49,22 @@ if __name__ == "__main__":
 ```
 
 Клиент можно использовать и без `async with` — тогда после завершения работы стоит вызвать `await docs.aclose()`, чтобы закрыть пул соединений.
+
+## Scopes
+`scopes` — обязательный параметр: список прав, с которыми запрашивается токен. Он должен совпадать с галочками в интеграции SIGNAL («Редактировать интеграцию»):
+
+- если в списке есть scope, которого нет в интеграции, SIGNAL не выдаёт токен — `DocsApi.create` бросает `SgnlScopeError` и перечисляет, что было запрошено;
+- лишние галочки в интеграции не мешают: запрашивать можно любое подмножество;
+- какой scope нужен методу, написано в его описании (`Required scopes: project:list`) и в [спецификации API](https://api.sgnl.pro/openapi/v1/schema.yml).
+
+```python
+# только чтение проектов и папок
+scopes = ["project:list", "project:read", "docs:folder:list", "docs:item:list"]
+```
+
+Запрашивайте только то, что нужно скрипту: токен без `*:create`, `*:update` и `*:delete` ничего не изменит в SIGNAL, даже если в коде ошибка.
+
+Почему SIGNAL не выдал токен, видно по классу исключения: `SgnlScopeError` — запрошен scope, которого нет в интеграции; `SgnlCredentialError` — неверный `client_id` или `client_secret` (после «Обновить ключ доступа» старый secret не работает); `SgnlLicenseError` — у компании нет лицензии на модуль одного из scope.
 
 ## Обработка ошибок
 При ошибке API методы бросают исключение, а не возвращают `dict` с ключом `error` — проверять каждый ответ вручную не нужно.
@@ -63,13 +80,13 @@ except SgnlApiError as e:
     print(e.status_code, e.message)
 ```
 
-Иерархия исключений: `SgnlApiError` (базовое) → `SgnlRequestError` (сетевые ошибки/таймауты), `SgnlAuthenticationError` (401), `SgnlBadRequestError` (400), `SgnlForbiddenError` (403), `SgnlNotFoundError` (404), `SgnlQuotaExceededError` (450), `SgnlRateLimitError` (429), `SgnlServerError` (5xx).
+Иерархия исключений: `SgnlApiError` (базовое) → `SgnlRequestError` (сетевые ошибки/таймауты), `SgnlAuthenticationError` (401 и отказ в токене; подклассы `SgnlScopeError`, `SgnlCredentialError`, `SgnlLicenseError`), `SgnlBadRequestError` (400), `SgnlForbiddenError` (403), `SgnlNotFoundError` (404), `SgnlQuotaExceededError` (450), `SgnlRateLimitError` (429), `SgnlServerError` (5xx).
 
 ## Лимиты запросов (429)
 API ограничивает частоту запросов (около 10 запросов в секунду на `client_id`, 50 с пополнением 4 в секунду на компанию). При ответе 429 клиент сам ждёт интервал из заголовка `Retry-After` (не больше 30 с за раз) и повторяет запрос — по умолчанию до 3 раз. Если лимит не отпустил, бросается `SgnlRateLimitError` с полем `retry_after`.
 
 ```python
-api = await DocsApi.create(client_id=..., client_secret=..., max_retries=5)  # 0 — отключить повторы
+api = await DocsApi.create(client_id=..., client_secret=..., scopes=[...], max_retries=5)  # 0 — отключить повторы
 ```
 
 Если токен отозван раньше срока, на ответ 401 клиент один раз получает новый токен и повторяет запрос.
@@ -90,7 +107,7 @@ await docs.item.add_version(item_id, version_id)
 
 ```python
 async with httpx.AsyncClient(transport=my_transport, timeout=30) as http:
-    docs = await DocsApi.create(client_id=..., client_secret=..., http_client=http)
+    docs = await DocsApi.create(client_id=..., client_secret=..., scopes=[...], http_client=http)
 ```
 
 ## Проверка покрытия API

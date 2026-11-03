@@ -4,7 +4,16 @@ import uuid
 import httpx
 import pytest
 
-from sgnl_api import DocsApi, SgnlAuthenticationError, SgnlNotFoundError, SgnlRateLimitError
+from sgnl_api import (
+    DocsApi,
+    SgnlAuthenticationError,
+    SgnlCredentialError,
+    SgnlForbiddenError,
+    SgnlLicenseError,
+    SgnlNotFoundError,
+    SgnlRateLimitError,
+    SgnlScopeError,
+)
 
 BASE = "https://api.sgnl.pro/public/v1"
 
@@ -43,7 +52,7 @@ def fake():
 @pytest.fixture
 async def api(fake):
     client = fake.client()
-    api = DocsApi(client_id="id", client_secret="secret", http_client=client, max_retries=2)
+    api = DocsApi(client_id="id", client_secret="secret", scopes=["project:list"], http_client=client, max_retries=2)
     yield api
     await api.aclose()
     await client.aclose()
@@ -137,3 +146,45 @@ async def test_upload_rejects_unknown_mime_and_empty_file(api, tmp_path):
         await api.file.upload("p1", str(empty))
     with pytest.raises(FileNotFoundError):
         await api.file.upload("p1", str(tmp_path / "missing.pdf"))
+
+
+def test_scopes_are_required_and_checked():
+    with pytest.raises(TypeError, match="scopes"):
+        DocsApi(client_id="id", client_secret="secret")
+    with pytest.raises(ValueError, match="not be empty"):
+        DocsApi(client_id="id", client_secret="secret", scopes=[])
+    with pytest.raises(ValueError, match=r"scopes=\['project:list'\]"):
+        DocsApi(client_id="id", client_secret="secret", scopes="project:list")
+    with pytest.raises(ValueError, match="project-list"):
+        DocsApi(client_id="id", client_secret="secret", scopes=["project:read", "project-list"])
+    api = DocsApi(client_id="id", client_secret="secret", scopes=("project:list", "project:list", "project:read"))
+    assert api._transport.scopes == ["project:list", "project:read"]
+
+
+@pytest.mark.parametrize("code, error_class, hint", [
+    ("ScopeError", SgnlScopeError, "Requested: project:list, docs:folder:create"),
+    ("CredentialError", SgnlCredentialError, "invalid client id or client secret"),
+    ("LicenseError", SgnlLicenseError, "no license"),
+    ("UnknownError", SgnlAuthenticationError, "UnknownError"),
+])
+async def test_refused_token_names_the_reason(code, error_class, hint):
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(422, json=code)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(error_class, match=hint) as info:
+            await DocsApi.create(client_id="id", client_secret="secret",
+                                 scopes=["project:list", "docs:folder:create"], http_client=client)
+    assert info.type is error_class
+    assert sent[0]["scopes"] == ["project:list", "docs:folder:create"]
+    if error_class is SgnlScopeError:
+        assert info.value.requested_scopes == ("project:list", "docs:folder:create")
+
+
+async def test_forbidden_mentions_token_scopes(fake, api):
+    fake.routes[("GET", "/projects")] = httpx.Response(403)
+    with pytest.raises(SgnlForbiddenError, match="issued for: project:list"):
+        await api.project.get_list()

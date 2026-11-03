@@ -58,20 +58,23 @@ from .resources import (
     UserLog,
     Version,
 )
-from .scopes import SCOPES_DEFAULT
+from .scopes import validate_scopes
 from .transport import DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT, Transport
 
 
 class DocsApi:
     """DocsApi client for interacting with the SGNL DOCS API.
-    Do not initialize this class directly. Use the create() classmethod instead:
+    Do not initialize this class directly. Use the create() classmethod instead.
+    ``scopes`` must list exactly the scopes enabled for the integration in SIGNAL: the server
+    refuses the token (SgnlScopeError) if any of them is missing there.
     Example:
         ```python
-        api = await DocsApi.create(client_id="your_id", client_secret="your_secret")
+        api = await DocsApi.create(client_id="your_id", client_secret="your_secret", scopes=["project:list"])
         ```
     Or as an async context manager, which closes the underlying connection pool on exit:
         ```python
-        async with await DocsApi.create(client_id="your_id", client_secret="your_secret") as api:
+        async with await DocsApi.create(client_id="your_id", client_secret="your_secret",
+                                        scopes=["project:list"]) as api:
             ...
         ```
     """
@@ -80,14 +83,14 @@ class DocsApi:
                  *,
                  client_id: str,
                  client_secret: str,
-                 scopes: list[str] = SCOPES_DEFAULT,
+                 scopes: list[str],
                  timeout: float = DEFAULT_TIMEOUT,
                  max_retries: int = DEFAULT_MAX_RETRIES,
                  http_client: Optional[httpx.AsyncClient] = None) -> None:
         self._transport = Transport(
             client_id=client_id,
             client_secret=client_secret,
-            scopes=[*scopes],
+            scopes=list(validate_scopes(scopes)),
             base_url="https://api.sgnl.pro/public/v1",
             timeout=timeout,
             max_retries=max_retries,
@@ -156,7 +159,7 @@ class DocsApi:
             *,
             client_id: str,
             client_secret: str,
-            scopes: list[str] = SCOPES_DEFAULT,
+            scopes: list[str],
             timeout: float = DEFAULT_TIMEOUT,
             max_retries: int = DEFAULT_MAX_RETRIES,
             http_client: Optional[httpx.AsyncClient] = None) -> "DocsApi":
@@ -164,7 +167,10 @@ class DocsApi:
                Args:
                    client_id: Your SGNL DOCS API client ID
                    client_secret: Your SGNL DOCS API client secret
-                   scopes: List of scopes
+                   scopes: The scopes to request, e.g. ["project:list", "project:read"]. Must be
+                       exactly the scopes enabled for the integration in SIGNAL ("Редактировать
+                       интеграцию"); one missing there and the server refuses the token with
+                       SgnlScopeError. Each method's docstring names the scope it needs.
                    timeout: Request timeout in seconds, applied to connect/read/write/pool
                    max_retries: How many times to retry a request that got 429 Too Many Requests,
                        waiting for the Retry-After interval between attempts. 0 disables retries.
@@ -176,7 +182,8 @@ class DocsApi:
                    ```python
                    api = await DocsApi.create(
                        client_id="your_id",
-                       client_secret="your_secret"
+                       client_secret="your_secret",
+                       scopes=["project:list", "project:read"],
                    )
                    ```
                """

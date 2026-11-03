@@ -15,7 +15,27 @@ class SgnlRequestError(SgnlApiError):
 
 
 class SgnlAuthenticationError(SgnlApiError):
-    """Raised on 401 - invalid, missing or expired credentials."""
+    """Raised on 401 - invalid, missing or expired credentials - and when a token cannot be issued."""
+
+
+class SgnlScopeError(SgnlAuthenticationError):
+    """The token request listed a scope the integration does not have (or the list was empty).
+
+    ``requested_scopes`` holds what was sent; every one of them must be enabled for the
+    integration in SIGNAL ("Редактировать интеграцию").
+    """
+
+    def __init__(self, message: str, *, status_code: Optional[int] = 422, requested_scopes: tuple = ()):
+        super().__init__(message, status_code=status_code)
+        self.requested_scopes = tuple(requested_scopes)
+
+
+class SgnlCredentialError(SgnlAuthenticationError):
+    """The client id or client secret is wrong (or the secret was rotated)."""
+
+
+class SgnlLicenseError(SgnlAuthenticationError):
+    """The company has no license for a module one of the requested scopes belongs to."""
 
 
 class SgnlBadRequestError(SgnlApiError):

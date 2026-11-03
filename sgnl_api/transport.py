@@ -10,13 +10,17 @@ from .exceptions import (
     SgnlApiError,
     SgnlAuthenticationError,
     SgnlBadRequestError,
+    SgnlCredentialError,
     SgnlForbiddenError,
+    SgnlLicenseError,
     SgnlNotFoundError,
     SgnlQuotaExceededError,
     SgnlRateLimitError,
     SgnlRequestError,
+    SgnlScopeError,
     SgnlServerError,
 )
+from .scopes import SCOPES_HELP
 from .utils import keys_to_snake_case
 
 DEFAULT_TIMEOUT = 30.0
@@ -138,6 +142,37 @@ class Transport:
                 self._jwt = None
                 self._jwt_expires_at = None
 
+    def _auth_error(self, response: httpx.Response) -> SgnlAuthenticationError:
+        """Turns a refused token request into an exception that says what to fix."""
+        try:
+            code = response.json()
+        except ValueError:
+            code = None
+        status = response.status_code
+        requested = ", ".join(self.scopes)
+        if code == "ScopeError":
+            return SgnlScopeError(
+                f"SIGNAL refused the token: the integration does not have every requested scope. "
+                f"Requested: {requested}. {SCOPES_HELP}",
+                status_code=status, requested_scopes=tuple(self.scopes)
+            )
+        if code == "CredentialError":
+            return SgnlCredentialError(
+                "SIGNAL refused the token: invalid client id or client secret "
+                "(after \"Обновить ключ доступа\" the old secret stops working).",
+                status_code=status
+            )
+        if code == "LicenseError":
+            return SgnlLicenseError(
+                f"SIGNAL refused the token: the company has no license for a module of one of the "
+                f"requested scopes. Requested: {requested}.",
+                status_code=status
+            )
+        return SgnlAuthenticationError(
+            f"Authentication failed with status {status}: {response.text}",
+            status_code=status
+        )
+
     async def _ensure_token(self) -> None:
         async with self._token_lock:
             if self._jwt is not None and self._jwt_expires_at and datetime.now() < self._jwt_expires_at:
@@ -162,10 +197,7 @@ class Transport:
                     retry_after=_parse_retry_after(response)
                 )
             if not response.is_success:
-                raise SgnlAuthenticationError(
-                    f"Authentication failed with status {response.status_code}: {response.text}",
-                    status_code=response.status_code
-                )
+                raise self._auth_error(response)
 
             data = response.json()
             self._jwt = data.get('token')
@@ -215,4 +247,7 @@ class Transport:
         message = f"{method} {path} -> {response.status_code} {reason}: {response.text}"
         if response.status_code == 429:
             raise SgnlRateLimitError(message, retry_after=_parse_retry_after(response))
+        if response.status_code == 403:
+            message += (f" [403 is either a missing scope or no access for the user. The token was issued "
+                        f"for: {', '.join(self.scopes)}; the method's docstring names the scope it needs.]")
         raise _error_class_for(response.status_code)(message, status_code=response.status_code)
