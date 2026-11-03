@@ -1,92 +1,114 @@
-# sgnl-mcp — MCP-сервер для SIGNAL Integration API
+# sgnl-mcp — MCP-сервер для SIGNAL
 
-MCP-сервер, через который LLM-агент (Claude и др.) работает с документацией в SIGNAL: смотрит проекты и папки, ищет и скачивает документы, загружает новые документы и версии, работает с замечаниями, передачами и рассмотрениями.
+Подключает SIGNAL к ИИ-ассистенту: Claude Desktop, Claude Code, Codex и другим клиентам с поддержкой MCP. Ассистенту можно писать обычным языком: «покажи проекты», «найди в проекте Школа документы АР в PDF», «какие замечания по этому документу ещё открыты».
 
-Агент остаётся под контролем: чтение без ограничений, запись — только после предпросмотра и согласия пользователя, отправка передач и запуск рассмотрений — только после подтверждения пользователем в диалоге. Удалять, перемещать и переименовывать документы и папки, а также менять права агент не может вообще.
+Что ассистент может делать, зависит от профиля:
 
-Построен на [`sgnl-api`](../README.md) — обёртке над API из этого же репозитория.
-
-## Как обеспечивается контроль
-
-| Рубеж | Что делает |
+| Профиль | Что доступно |
 |---|---|
-| 1. Scopes токена | Сервер запрашивает у SIGNAL только права своего профиля. В профиле `read` в токене нет ни одного права на запись — SIGNAL сам откажет. Права `*:delete` не запрашиваются никогда. |
-| 2. Профиль | Инструменты выше профиля не регистрируются: агент их не видит. |
-| 3. Белый список запросов | Каждый HTTP-запрос проверяется до отправки: только разрешённые метод и путь, никаких `DELETE`, никакого поля `deleted` в запросах на запись, внешние хосты — только для загрузки файла. |
-| 4. Подтверждение | Запись — в два вызова: предпросмотр с токеном, затем выполнение с тем же токеном. Отправка передачи и запуск рассмотрения — через диалог подтверждения у пользователя (MCP elicitation). |
-| 5. Клиент и аудит | Инструменты помечены `readOnlyHint`: клиент спрашивает разрешение на запись. Все записи и отказы пишутся в JSONL-журнал без секретов. |
+| `read` (по умолчанию) | Только чтение: проекты, папки, документы и их версии, ссылки на скачивание, замечания, передачи, рассмотрения, подписи |
+| `write` | Чтение и изменения: загрузка документов и новых версий, правка замечаний, создание передач и рассмотрений. Каждое изменение выполняется только после вашего согласия |
+| `workflow` | Всё из `write`, а также отправка передач и запуск рассмотрений. Каждое такое действие подтверждается в отдельном диалоге |
 
-Нагрузка на SIGNAL ограничена: по умолчанию не больше 3 запросов в секунду и 4 параллельных на весь сервер, у каждого вызова инструмента свой бюджет запросов, справочники кэшируются на 5 минут.
+Удалять, перемещать и переименовывать документы и папки, а также менять права доступа ассистент не может ни в одном профиле.
 
-## Установка
+## Содержание
 
-```bash
-uvx sgnl-mcp          # запуск без установки
-# или
-pip install sgnl-mcp
+- [Что понадобится](#что-понадобится)
+- [Способ 1. Через uvx](#способ-1-через-uvx)
+- [Способ 2. Через Docker](#способ-2-через-docker)
+- [Проверка](#проверка)
+- [Профили write и workflow](#профили-write-и-workflow)
+- [Обновление](#обновление)
+- [Если что-то не работает](#если-что-то-не-работает)
+- [Для администратора SIGNAL](#для-администратора-signal)
+- [Все настройки](#все-настройки)
+- [Что умеет ассистент](#что-умеет-ассистент)
+
+## Что понадобится
+
+1. **Ключ SIGNAL**: `client_id` и `client_secret` интеграции. Их выдаёт администратор SIGNAL вашей компании; что ему нужно сделать, описано в разделе [Для администратора SIGNAL](#для-администратора-signal). Scope и другие технические детали вам знать не нужно.
+2. **Клиент с поддержкой MCP**: Claude Desktop, Claude Code или Codex (CLI, расширение для IDE или десктопное приложение). ChatGPT в браузере и облачный Codex к этому серверу не подключаются: им нужен сервер в интернете, а этот работает на вашем компьютере.
+3. **Один из двух способов запуска:**
+
+| | uvx | Docker |
+|---|---|---|
+| Что установить | `uv`, небольшую утилиту | Docker Desktop |
+| Подходит, если | Docker не установлен или не нужен | Docker уже установлен, нужна дополнительная изоляция |
+| Доступ к файлам компьютера | как у вашей учётной записи; для загрузки только папка из настроек | только к одной папке, которую вы подключите |
+| Где хранить ключ | в настройках клиента | в отдельном файле |
+
+Оба способа запускают один и тот же сервер, и работает он одинаково. Можно установить оба и переключаться между ними.
+
+Ниже `0.2.1` — текущая версия. Номер последней версии можно посмотреть на [PyPI](https://pypi.org/project/sgnl-mcp/).
+
+## Способ 1. Через uvx
+
+### Шаг 1. Установите uv
+
+**Windows**, в PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Нужен Python 3.11+.
+**macOS и Linux**, в терминале:
 
-## Настройка
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-Вся настройка — через переменные окружения (или файл `.env` в рабочем каталоге). Агент не может их изменить.
+Закройте терминал, откройте его снова и узнайте полный путь к `uvx`. Он понадобится в настройках клиента.
 
-| Переменная | Обязательна | По умолчанию | Назначение |
-|---|---|---|---|
-| `SGNL_CLIENT_ID` | да | — | Client ID интеграции SIGNAL |
-| `SGNL_CLIENT_SECRET` | да | — | Client secret интеграции SIGNAL |
-| `SGNL_MCP_PROFILE` | нет | `read` | `read`, `write` или `workflow` |
-| `SGNL_MCP_ACTOR_USER_ID` | для `write`/`workflow` | — | ID пользователя SIGNAL, от имени которого делаются изменения (лучше служебная учётная запись «AI-агент») |
-| `SGNL_MCP_UPLOAD_ROOT` | для `write`/`workflow` | — | Каталог, из которого разрешено загружать файлы. Файлы вне него, в том числе через символические ссылки, недоступны |
-| `SGNL_MCP_ALLOWED_EXTENSIONS` | нет | `.pdf,.dwg,.dxf,…` | Разрешённые типы загружаемых файлов, через запятую |
-| `SGNL_MCP_AUTO_CONFIRM` | нет | — | Write-инструменты, которые выполняются без предпросмотра (только для доверенных сценариев). Workflow сюда не входит |
-| `SGNL_MCP_RATE_PER_SEC` | нет | `3` | Запросов в секунду (не больше 10) |
-| `SGNL_MCP_BURST` | нет | `6` | Запас запросов для коротких всплесков |
-| `SGNL_MCP_MAX_CONCURRENCY` | нет | `4` | Параллельных запросов к SIGNAL |
-| `SGNL_MCP_TOOL_TIMEOUT` | нет | `30` | Таймаут вызова инструмента, с |
-| `SGNL_MCP_UPLOAD_TIMEOUT` | нет | `600` | Таймаут загрузки файла, с |
-| `SGNL_MCP_CONFIRMATION_TTL_SEC` | нет | `300` | Срок действия токена подтверждения |
-| `SGNL_MCP_AUDIT_PATH` | нет | `~/.sgnl-mcp/audit.jsonl` | Журнал аудита |
-| `SGNL_MCP_STATE_PATH` | нет | `~/.sgnl-mcp/state.sqlite` | Журнал выполненных операций (защита от повторов) |
+```powershell
+where.exe uvx      # Windows, обычно C:\Users\<имя>\.local\bin\uvx.exe
+```
 
-Пользователю нужен только ключ (`SGNL_CLIENT_ID` и `SGNL_CLIENT_SECRET`), scope он не задаёт: сервер сам запрашивает права своего профиля.
+```bash
+which uvx          # macOS и Linux, обычно /Users/<имя>/.local/bin/uvx
+```
 
-Если в интеграции включены не все scope, сервер всё равно запускается, но без недостающих:
-- операции, которым они нужны, отвечают ошибкой `SCOPE_MISSING` с готовым текстом для администратора, например: «У вашего ключа SIGNAL ограниченные права… Передайте администратору SIGNAL: „В интеграции (client_id …) включите scope: docs:issue:list“»;
-- запрос в SIGNAL при этом не отправляется;
-- инструмент `get_access_status` заранее показывает, чего не хватает;
-- то же сообщение сервер пишет в свой журнал при запуске.
+Python отдельно ставить не нужно: если его нет, `uv` скачает его сам.
 
-Сервер не запускается, только если ключ неверный или в интеграции нет ни одного scope профиля. Для `write` и `workflow` при запуске проверяется, что пользователь `SGNL_MCP_ACTOR_USER_ID` есть в компании. Если для этой проверки нет `company:user:list`, запись недоступна, а чтение работает.
+### Шаг 2. Проверьте ключ
 
-### Права интеграции по профилям
+**Windows (PowerShell):**
 
-Это раздел для администратора SIGNAL. Включите в интеграции эти scope, чтобы были доступны все инструменты профиля:
+```powershell
+$env:SGNL_CLIENT_ID="ваш client_id"
+$env:SGNL_CLIENT_SECRET="ваш client_secret"
+uvx sgnl-mcp@0.2.1
+```
 
-| Профиль | Scopes интеграции в SIGNAL |
-|---|---|
-| `read` | `project:list`, `project:read`, `docs:folder:read`, `docs:item:list`, `docs:item:read`, `docs:version:list`, `docs:docs_transfer:list`, `docs:docs_transfer:read`, `docs:issue:list`, `docs:review:list`, `docs:signing:list`, `docs:attribute:list` |
-| `write` | всё из `read` + `company:user:list`, `docs:object:create`, `docs:version:create`, `docs:version:update`, `docs:item:create`, `docs:docs_transfer:create`, `docs:docs_transfer:update`, `docs:issue:update`, `docs:review:create`, `docs:review:update` |
-| `workflow` | то же, что `write` |
+**macOS и Linux:**
 
-Список составляется автоматически из запросов, которые разрешены профилю. Тест сверяет его со спецификацией SIGNAL, поэтому лишнего сервер не запросит. Обратите внимание: нужен `docs:issue:list`, а не `docs:issue:read`.
+```bash
+SGNL_CLIENT_ID="ваш client_id" SGNL_CLIENT_SECRET="ваш client_secret" uvx sgnl-mcp@0.2.1
+```
 
-Отправка передачи и запуск рассмотрения в SIGNAL используют те же права, что и их наполнение. Поэтому их отделяет сам MCP-сервер: в профиле `write` этих инструментов нет, а в `workflow` они всегда требуют подтверждения пользователя.
+Первый запуск длится 10–20 секунд: скачиваются пакеты. Возможны три результата:
 
-## Подключение к Claude
+- **Курсор мигает, сообщений нет.** Всё в порядке: сервер подключился к SIGNAL и ждёт клиента. Остановите его через Ctrl+C.
+- **`started with limited rights`.** Сервер работает, но части операций ключу не хватает прав. В сообщении указано, что передать администратору. Пользоваться можно и так.
+- **`cannot start` или `invalid configuration`.** Ключ неверный или не задан, см. раздел [Если что-то не работает](#если-что-то-не-работает).
 
-**Claude Desktop** — `claude_desktop_config.json`:
+### Шаг 3. Подключите к клиенту
+
+**Claude Desktop.** Откройте файл настроек:
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Добавьте в него блок `sgnl`. Если в файле уже есть `"mcpServers"`, добавьте только сам блок `"sgnl": {…}` рядом с остальными серверами.
 
 ```json
 {
   "mcpServers": {
     "sgnl": {
-      "command": "uvx",
-      "args": ["sgnl-mcp"],
+      "command": "C:\\Users\\Admin\\.local\\bin\\uvx.exe",
+      "args": ["sgnl-mcp@0.2.1"],
       "env": {
-        "SGNL_CLIENT_ID": "…",
-        "SGNL_CLIENT_SECRET": "…",
+        "SGNL_CLIENT_ID": "ваш client_id",
+        "SGNL_CLIENT_SECRET": "ваш client_secret",
         "SGNL_MCP_PROFILE": "read"
       }
     }
@@ -94,38 +116,69 @@ pip install sgnl-mcp
 }
 ```
 
+В `command` укажите путь из шага 1. В Windows обратные слеши удваиваются (`\\`), на macOS путь пишется как есть: `/Users/me/.local/bin/uvx`. Затем полностью закройте Claude Desktop (на Windows через значок в трее → Quit) и запустите снова.
+
 **Claude Code:**
 
 ```bash
-claude mcp add sgnl -e SGNL_CLIENT_ID=… -e SGNL_CLIENT_SECRET=… -e SGNL_MCP_PROFILE=read -- uvx sgnl-mcp
+claude mcp add sgnl -e SGNL_CLIENT_ID=ваш_client_id -e SGNL_CLIENT_SECRET=ваш_client_secret -- uvx sgnl-mcp@0.2.1
 ```
 
-Для профиля `write` добавьте `SGNL_MCP_ACTOR_USER_ID` и `SGNL_MCP_UPLOAD_ROOT`.
+**Codex.** Файл `~/.codex/config.toml`, на Windows это `%USERPROFILE%\.codex\config.toml`:
 
-## Запуск в Docker
-
-Готовый образ для `linux/amd64` и `linux/arm64` (в том числе Mac на Apple Silicon) публикуется в GitHub Container Registry:
-
-```bash
-docker pull ghcr.io/gritsyuk/sgnl-mcp:latest   # или конкретная версия, например :0.1.0
-docker tag ghcr.io/gritsyuk/sgnl-mcp:latest sgnl-mcp
+```toml
+[mcp_servers.sgnl]
+command = "uvx"
+args = ["sgnl-mcp@0.2.1"]
+env = { SGNL_CLIENT_ID = "ваш client_id", SGNL_CLIENT_SECRET = "ваш client_secret" }
+startup_timeout_sec = 30
 ```
 
-Для работы стоит закрепить версию (`:0.1.0`), а не `latest`: тогда образ не обновится без вашего ведома. Можно и собрать образ самостоятельно из корня репозитория (ему нужны оба пакета рабочего пространства):
+Журнал действий ассистента хранится в папке `.sgnl-mcp` в домашнем каталоге, файл `audit.jsonl`.
+
+## Способ 2. Через Docker
+
+### Шаг 1. Установите Docker Desktop и скачайте образ
+
+Скачайте Docker Desktop с [docker.com](https://www.docker.com/products/docker-desktop/), установите и запустите. Затем выполните:
 
 ```bash
-docker build -f mcp/Dockerfile -t sgnl-mcp .
+docker pull ghcr.io/gritsyuk/sgnl-mcp:0.2.1
 ```
 
-Сервер общается с клиентом через stdin/stdout, поэтому контейнер запускается с `-i`, а клиент сам стартует его на каждую сессию. Секреты удобно держать в env-файле, а не в конфигурации клиента. Например, `~/.sgnl-mcp.env`:
+Образ подходит для Windows, Linux и Mac с процессорами Intel и Apple.
 
-```bash
-SGNL_CLIENT_ID=…
-SGNL_CLIENT_SECRET=…
+### Шаг 2. Сохраните ключ в файл
+
+Создайте текстовый файл, например `C:\Users\Admin\sgnl-mcp.env` (Windows) или `~/sgnl-mcp.env` (macOS, Linux):
+
+```
+SGNL_CLIENT_ID=ваш client_id
+SGNL_CLIENT_SECRET=ваш client_secret
 SGNL_MCP_PROFILE=read
 ```
 
-**Claude Desktop** — `claude_desktop_config.json` (пути — абсолютные):
+Кавычки и пробелы вокруг `=` не нужны.
+
+### Шаг 3. Проверьте ключ
+
+**Windows (cmd или PowerShell):**
+
+```powershell
+docker run -i --rm --init --env-file C:\Users\Admin\sgnl-mcp.env ghcr.io/gritsyuk/sgnl-mcp:0.2.1
+```
+
+**macOS и Linux:**
+
+```bash
+docker run -i --rm --init --env-file ~/sgnl-mcp.env ghcr.io/gritsyuk/sgnl-mcp:0.2.1
+```
+
+Результаты те же, что для uvx: если курсор мигает без сообщений, всё в порядке. Остановите сервер через Ctrl+C.
+
+### Шаг 4. Подключите к клиенту
+
+**Claude Desktop** (где лежит файл настроек, см. [способ 1](#шаг-3-подключите-к-клиенту)):
 
 ```json
 {
@@ -136,104 +189,191 @@ SGNL_MCP_PROFILE=read
         "run", "-i", "--rm", "--init",
         "--read-only", "--tmpfs", "/tmp",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-        "--env-file", "/Users/me/.sgnl-mcp.env",
+        "--env-file", "C:\\Users\\Admin\\sgnl-mcp.env",
         "-v", "sgnl-mcp-data:/data",
-        "sgnl-mcp"
+        "ghcr.io/gritsyuk/sgnl-mcp:0.2.1"
       ]
     }
   }
 }
 ```
 
+На macOS и Linux в `--env-file` укажите полный путь без `~`, например `/Users/me/sgnl-mcp.env`. После изменения полностью перезапустите Claude Desktop.
+
 **Claude Code:**
 
 ```bash
 claude mcp add sgnl -- docker run -i --rm --init --read-only --tmpfs /tmp --cap-drop ALL \
-  --security-opt no-new-privileges --env-file ~/.sgnl-mcp.env -v sgnl-mcp-data:/data sgnl-mcp
+  --security-opt no-new-privileges --env-file ~/sgnl-mcp.env -v sgnl-mcp-data:/data \
+  ghcr.io/gritsyuk/sgnl-mcp:0.2.1
 ```
 
-**Windows.** В конфигурации Claude Desktop (`%APPDATA%\Claude\claude_desktop_config.json`) обратные слеши в путях удваиваются: `"--env-file", "C:\\Users\\Admin\\.sgnl-mcp.env"`, а папка для загрузки подключается как `"-v", "C:\\SIGNAL\\outgoing:/uploads:ro"`. В командной строке `cmd` вместо `/dev/null` используется `NUL`. Проверить, что образ запускается:
+**Codex** (`~/.codex/config.toml`):
 
-```cmd
-docker run -i --rm --init ghcr.io/gritsyuk/sgnl-mcp:0.1.0 < NUL
+```toml
+[mcp_servers.sgnl]
+command = "docker"
+args = [
+  "run", "-i", "--rm", "--init", "--read-only", "--tmpfs", "/tmp",
+  "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+  "--env-file", "C:\\Users\\Admin\\sgnl-mcp.env",
+  "-v", "sgnl-mcp-data:/data",
+  "ghcr.io/gritsyuk/sgnl-mcp:0.2.1",
+]
+startup_timeout_sec = 30
 ```
 
-Без учётных данных сервер сразу завершится с ошибкой проверки настроек (не заданы `SGNL_CLIENT_ID` / `SGNL_CLIENT_SECRET`) — значит, образ рабочий.
+Что значат параметры запуска:
 
-Что внутри образа:
+| Параметр | Зачем |
+|---|---|
+| `-i --rm --init` | клиент общается с сервером через контейнер и удаляет контейнер после закрытия |
+| `--read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges` | контейнер ничего не может изменить в себе и не получает лишних прав |
+| `--env-file …` | откуда взять ключ |
+| `-v sgnl-mcp-data:/data` | где хранить журнал действий ассистента между запусками |
 
-- Процесс работает от непривилегированного пользователя (uid 10001), зависимости зафиксированы `uv.lock`.
-- `/data` — том для журнала аудита (`audit.jsonl`) и журнала выполненных операций (`state.sqlite`). Именованный том `sgnl-mcp-data` сохраняет их между запусками; без него защита от повторов и аудит теряются при каждом перезапуске.
-- `/uploads` — каталог загрузки (`SGNL_MCP_UPLOAD_ROOT` уже указывает на него). Для профилей `write`/`workflow` смонтируйте туда папку с файлами **только на чтение**: `-v /path/to/outgoing:/uploads:ro`. Тогда агент физически не может ни изменить файлы на компьютере, ни прочитать что-то за пределами этой папки.
-- Файл `.env` в образ не попадает (`.dockerignore` пропускает только исходники пакетов).
+Журнал действий хранится в томе Docker `sgnl-mcp-data`, файл `audit.jsonl`.
 
-Флаги `--read-only`, `--cap-drop ALL` и `no-new-privileges` необязательны, но сервер с ними работает, и это ещё один рубеж: контейнер не может ничего записать, кроме `/data` и `/tmp`.
+## Проверка
 
-### Разрешения в клиенте
-- Инструменты чтения можно разрешить без вопросов.
-- Инструменты записи и Workflow **не добавляйте в «разрешить всегда»**: клиент должен спрашивать перед каждым вызовом. Это один из рубежей контроля.
-- Для профиля `workflow` клиент должен поддерживать MCP elicitation (диалог подтверждения). Без неё отправка передач и запуск рассмотрений завершаются ошибкой и ничего не делают.
+Напишите ассистенту: «Подключён ли SIGNAL? Покажи список проектов».
 
-## Инструменты
+- Ассистент вызовет `get_access_status` и `list_projects` и покажет проекты, доступные вашему ключу.
+- Если ключу чего-то не хватает, ассистент скажет об этом и приведёт готовый текст для администратора.
+
+Claude Desktop запускает сервер дважды: для обычного чата и для режимов Cowork и Code. Поэтому в Docker Desktop видно два контейнера, а в Диспетчере задач два процесса. Это нормально.
+
+## Профили write и workflow
+
+Для изменений в SIGNAL нужны ещё три настройки. Для uvx они добавляются в `env`, для Docker в env-файл.
+
+```
+SGNL_MCP_PROFILE=write
+SGNL_MCP_ACTOR_USER_ID=<ID пользователя SIGNAL, от имени которого вносятся изменения>
+SGNL_MCP_UPLOAD_ROOT=<папка с файлами, которые ассистенту можно загружать>
+```
+
+- `SGNL_MCP_ACTOR_USER_ID`: ID пользователя SIGNAL. Обычно это служебная учётная запись, например «AI-агент»; её ID даёт администратор SIGNAL.
+- `SGNL_MCP_UPLOAD_ROOT`: файлы вне этой папки ассистент загрузить не может.
+- **Docker:** `SGNL_MCP_UPLOAD_ROOT` не задавайте, а подключите папку параметром перед именем образа, только для чтения:
+  ```json
+  "-v", "C:\\SIGNAL\\outgoing:/uploads:ro",
+  ```
+
+Как проходит изменение:
+1. Ассистент показывает, что именно изменится: «было → станет», путь папки, состав передачи.
+2. Изменение выполняется только после вашего согласия в чате.
+3. Отправку передачи и запуск рассмотрения (профиль `workflow`) вы дополнительно подтверждаете в отдельном диалоге клиента.
+
+В настройках клиента не включайте «разрешить всегда» для инструментов записи: пусть клиент спрашивает перед каждым изменением.
+
+## Обновление
+
+Замените номер версии в настройках клиента, например `0.2.1` → `0.3.0`, и перезапустите клиент.
+
+- **uvx:** новая версия скачается сама при первом запуске.
+- **Docker:** сначала скачайте образ: `docker pull ghcr.io/gritsyuk/sgnl-mcp:0.3.0`.
+
+Указывайте конкретную версию, а не `latest`: тогда сервер не обновится без вашего ведома.
+
+## Если что-то не работает
+
+Журнал запуска сервера в Claude Desktop:
+- Windows: `%APPDATA%\Claude\logs\mcp-server-sgnl.log`
+- macOS: `~/Library/Logs/Claude/mcp-server-sgnl.log`
+
+| Сообщение | Что сделать |
+|---|---|
+| `invalid configuration … SGNL_CLIENT_ID is not set` | Ключ не передан. Проверьте блок `env` (uvx) или содержимое env-файла (Docker) |
+| `cannot start … CredentialError` или `invalid client id or client secret` | Неверный ключ. Если администратор нажимал «Обновить ключ доступа», старый `client_secret` больше не работает: запросите новый |
+| `cannot start … no license` или в интеграции нет нужных прав | Перешлите текст ошибки администратору SIGNAL |
+| `started with limited rights` | Сервер работает, но не всё доступно. Перешлите текст из сообщения администратору SIGNAL |
+| `spawn uvx ENOENT` или «не удаётся найти файл» | Клиент не нашёл `uvx`. Укажите в `command` полный путь из шага 1 |
+| `--env-file: open …: The system cannot find the file specified` | Неверный путь к env-файлу в настройках |
+| `Unable to find image` и долгий первый запуск | Docker скачивает образ, подождите. Чтобы не ждать, заранее выполните `docker pull` |
+| `Cannot connect to the Docker daemon` | Docker Desktop не запущен |
+| Сервер не отвечает в Codex | Увеличьте `startup_timeout_sec` до 60 |
+
+Если ассистент отвечает, что ключу не хватает прав (`SCOPE_MISSING`), перешлите его сообщение администратору SIGNAL: в нём уже указано, какие права нужно добавить. После этого перезапустите клиент.
+
+## Для администратора SIGNAL
+
+Чтобы выдать сотруднику ключ, создайте интеграцию в SIGNAL («Редактировать интеграцию»):
+
+1. **Название**: например, `MCP_READ` или `MCP_<сотрудник>`.
+2. **scopes**: отметьте права профиля из таблицы ниже.
+3. **Проект**: только проекты, с которыми сотрудник должен работать через ассистента.
+4. **Действительно до**: для ключей с правами на запись лучше ставить короткий срок.
+
+Передайте сотруднику `client_id` и `client_secret`. «Обновить ключ доступа» выпускает новый `client_secret`, старый перестаёт работать.
+
+| Профиль | Права (scopes) интеграции |
+|---|---|
+| `read` | `project:list`, `project:read`, `docs:folder:read`, `docs:item:list`, `docs:item:read`, `docs:version:list`, `docs:docs_transfer:list`, `docs:docs_transfer:read`, `docs:issue:list`, `docs:review:list`, `docs:signing:list`, `docs:attribute:list` |
+| `write`, `workflow` | всё из `read`, а также `company:user:list`, `docs:object:create`, `docs:version:create`, `docs:version:update`, `docs:item:create`, `docs:docs_transfer:create`, `docs:docs_transfer:update`, `docs:issue:update`, `docs:review:create`, `docs:review:update` |
+
+Обратите внимание на похожие названия: нужен `docs:issue:list`, а не `docs:issue:read`.
+
+Если каких-то прав из списка нет, сервер всё равно работает, но соответствующие операции недоступны. Сотрудник получит сообщение с перечнем недостающих прав. Права на удаление (`*:delete`), управление доступом (`docs:permissions:*`) и пользователями сервер не использует: выдавать их не нужно.
+
+Для профилей `write` и `workflow` заведите служебного пользователя (например, «AI-агент») и сообщите сотруднику его ID. От его имени будут вноситься изменения.
+
+## Все настройки
+
+| Переменная | Обязательна | По умолчанию | Назначение |
+|---|---|---|---|
+| `SGNL_CLIENT_ID` | да | — | `client_id` интеграции SIGNAL |
+| `SGNL_CLIENT_SECRET` | да | — | `client_secret` интеграции SIGNAL |
+| `SGNL_MCP_PROFILE` | нет | `read` | `read`, `write` или `workflow` |
+| `SGNL_MCP_ACTOR_USER_ID` | для `write`/`workflow` | — | ID пользователя SIGNAL, от имени которого вносятся изменения |
+| `SGNL_MCP_UPLOAD_ROOT` | для `write`/`workflow` | в Docker: `/uploads` | Папка, из которой можно загружать файлы |
+| `SGNL_MCP_ALLOWED_EXTENSIONS` | нет | `.pdf,.dwg,.dxf,…` | Разрешённые типы загружаемых файлов, через запятую |
+| `SGNL_MCP_AUTO_CONFIRM` | нет | — | Инструменты записи, которые выполняются без предпросмотра. Используйте только в доверенных сценариях |
+| `SGNL_MCP_RATE_PER_SEC` | нет | `3` | Сколько запросов в секунду сервер отправляет в SIGNAL (не больше 10) |
+| `SGNL_MCP_BURST` | нет | `6` | Запас запросов для коротких всплесков |
+| `SGNL_MCP_MAX_CONCURRENCY` | нет | `4` | Сколько запросов к SIGNAL выполняется одновременно |
+| `SGNL_MCP_TOOL_TIMEOUT` | нет | `30` | Сколько секунд ждать ответа на одну операцию |
+| `SGNL_MCP_UPLOAD_TIMEOUT` | нет | `600` | Сколько секунд ждать загрузки файла |
+| `SGNL_MCP_CONFIRMATION_TTL_SEC` | нет | `300` | Сколько секунд действует предпросмотр изменения |
+| `SGNL_MCP_AUDIT_PATH` | нет | `~/.sgnl-mcp/audit.jsonl`, в Docker `/data/audit.jsonl` | Журнал действий ассистента |
+| `SGNL_MCP_STATE_PATH` | нет | `~/.sgnl-mcp/state.sqlite`, в Docker `/data/state.sqlite` | Журнал выполненных операций, защищает от повторного выполнения |
+
+## Что умеет ассистент
 
 | Инструмент | Профиль | Что делает |
 |---|---|---|
-| `get_access_status` | read | Что доступно ключу: профиль, недостающие scope и готовый текст для администратора SIGNAL (без запросов к SIGNAL) |
-| `list_projects` | read | Проекты, доступные интеграции |
-| `get_project` | read | Данные проекта и его корневая папка |
+| `get_access_status` | read | Что доступно ключу и чего не хватает |
+| `list_projects` | read | Список проектов |
+| `get_project` | read | Данные проекта |
 | `get_project_folder_tree` | read | Дерево папок с правами пользователя |
-| `search_documents` | read | Поиск документов по проекту или папке (имя, расширение, автор, даты) |
-| `list_folder_documents` | read | Документы одной папки (без вложенных) |
+| `search_documents` | read | Поиск документов по имени, расширению, автору, датам |
+| `list_folder_documents` | read | Документы одной папки |
 | `list_document_versions` | read | История версий документа |
-| `get_document_version` | read | Связь «документ — версия файла» по `item_version_id` |
-| `get_document_download_url` | read | Временная ссылка на скачивание версии (сам файл не передаётся) |
-| `get_document_context` | read | Всё о документе за один вызов: версии, атрибуты, замечания, рассмотрения, подписи; у каждого блока свой статус |
-| `list_document_transfers` | read | Передачи проекта с фильтрами |
-| `get_document_transfer` | read | Полные данные передачи |
+| `get_document_version` | read | Какой документ и какой файл связаны с версией |
+| `get_document_download_url` | read | Временная ссылка на скачивание версии |
+| `get_document_context` | read | Всё о документе за один запрос: версии, атрибуты, замечания, рассмотрения, подписи |
+| `list_document_transfers` | read | Передачи проекта |
+| `get_document_transfer` | read | Данные передачи |
 | `list_transfer_documents` | read | Документы в передаче |
-| `list_document_transfer_types` | read | Типы передач проекта |
-| `list_issues` | read | Замечания с фильтрами |
-| `list_reviews` | read | Рассмотрения проекта |
+| `list_document_transfer_types` | read | Типы передач |
+| `list_issues` | read | Замечания |
+| `list_reviews` | read | Рассмотрения |
 | `get_review_details` | read | Версии рассмотрения и документы в них |
-| `get_document_review_status` | read | Статус рассмотрения версий документов |
-| `list_review_types` | read | Типы рассмотрений проекта |
+| `get_document_review_status` | read | Статус рассмотрения документов |
+| `list_review_types` | read | Типы рассмотрений |
 | `upload_document` | write | Новый документ из файла |
-| `add_document_version` | write | Новая версия существующего документа |
-| `update_document_version_comment` | write | Комментарий версии |
+| `add_document_version` | write | Новая версия документа |
+| `update_document_version_comment` | write | Комментарий к версии |
 | `create_document_transfer` | write | Новая передача (черновик) |
-| `add_documents_to_transfer` | write | Добавить версии документов в неотправленную передачу |
-| `update_issues` | write | Изменить 1–25 замечаний |
+| `add_documents_to_transfer` | write | Добавить документы в передачу |
+| `update_issues` | write | Изменить до 25 замечаний |
 | `create_review` | write | Новое рассмотрение (черновик) |
-| `add_documents_to_review` | write | Добавить до 20 версий документов в рассмотрение |
-| `prepare_send_document_transfer` | workflow | Проверить передачу перед отправкой и получить токен |
-| `send_document_transfer` | workflow | Отправить передачу (подтверждение пользователем в диалоге) |
-| `prepare_start_review` | workflow | Проверить рассмотрение перед запуском и получить токен |
-| `start_review` | workflow | Запустить рассмотрение (подтверждение пользователем в диалоге) |
+| `add_documents_to_review` | write | Добавить до 20 документов в рассмотрение |
+| `prepare_send_document_transfer` | workflow | Проверить передачу перед отправкой |
+| `send_document_transfer` | workflow | Отправить передачу |
+| `prepare_start_review` | workflow | Проверить рассмотрение перед запуском |
+| `start_review` | workflow | Запустить рассмотрение |
 
-### Как проходит запись
+Чего ассистент не делает: не создаёт замечания; не удаляет, не перемещает и не переименовывает документы и папки; не меняет права и пользователей. Найти передачи по конкретному документу нельзя: такой возможности нет в API SIGNAL.
 
-1. Агент вызывает инструмент без `confirmation_token`. Сервер проверяет объекты и возвращает предпросмотр («было → станет», путь папки, состав передачи и т.п.) и токен. В SIGNAL ничего не меняется.
-2. Агент показывает предпросмотр пользователю.
-3. После согласия агент вызывает инструмент с теми же аргументами и токеном. Сервер перепроверяет объекты: если с момента предпросмотра что-то изменилось (другой файл, кто-то правил замечание), токен отклоняется.
-
-Токен одноразовый, действует 5 минут и привязан к аргументам. Повторный вызов с уже использованным токеном возвращает сохранённый результат, а не выполняет операцию второй раз.
-
-Если запрос на запись завершился без ясного ответа (таймаут, ошибка сервера), сервер **не повторяет его сам**, а возвращает `OUTCOME_UNKNOWN` с тем, что удалось выяснить. Для загрузки файла можно завершить операцию параметром `resume_version_id`, не загружая файл заново.
-
-### Ограничения
-- В API SIGNAL нет поиска передач по документу, поэтому блок `transfers` в `get_document_context` всегда `not_supported`.
-- Создание замечаний, удаление, перемещение, переименование, изменение прав и пользователей в MCP-сервер намеренно не включены.
-
-## Ответы и ошибки
-
-Все инструменты возвращают `{"success": true, "data": …, "page": …, "warnings": […], "request_id": …}` или `{"success": false, "error": {"code", "message", "details"}, "request_id": …}`.
-
-| Код | Значение |
-|---|---|
-| `INVALID_REQUEST`, `NOT_FOUND`, `FORBIDDEN`, `AUTH_FAILED`, `QUOTA_EXCEEDED`, `RATE_LIMITED` | Ответ SIGNAL (400, 404, 403, 401, 450, 429) |
-| `SERVER_ERROR`, `NETWORK_ERROR`, `TIMEOUT` | SIGNAL не ответил нормально; чтение можно повторить |
-| `OUTCOME_UNKNOWN` | Запись могла пройти или не пройти; сервер её не повторял |
-| `SCOPE_MISSING` | В интеграции ключа не включён нужный scope или у компании нет лицензии. В `message` — текст для администратора SIGNAL, в `details.missing_scopes` — список scope |
-| `POLICY_DENIED` | Запрос запрещён политикой MCP-сервера |
-| `CONFIRMATION_INVALID`, `CONFIRMATION_DECLINED` | Токен недействителен или пользователь не подтвердил |
-| `INVALID_STATE`, `NOTHING_TO_DO`, `UPLOAD_FAILED`, `BUDGET_EXCEEDED` | Объект в неподходящем состоянии, изменять нечего, файл не передан, исчерпан бюджет запросов |
+Нагрузка на SIGNAL ограничена: по умолчанию не больше 3 запросов в секунду, справочники запоминаются на 5 минут.
