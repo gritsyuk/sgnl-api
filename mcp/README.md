@@ -15,7 +15,7 @@
 ## Содержание
 
 - [Что понадобится](#что-понадобится)
-- [Способ 1. Через uvx](#способ-1-через-uvx)
+- [Способ 1. Через uv](#способ-1-через-uv)
 - [Способ 2. Через Docker](#способ-2-через-docker)
 - [Проверка](#проверка)
 - [Профили write и workflow](#профили-write-и-workflow)
@@ -31,7 +31,7 @@
 2. **Клиент с поддержкой MCP**: Claude Desktop, Claude Code или Codex (CLI, расширение для IDE или десктопное приложение). ChatGPT в браузере и облачный Codex к этому серверу не подключаются: им нужен сервер в интернете, а этот работает на вашем компьютере.
 3. **Один из двух способов запуска:**
 
-| | uvx | Docker |
+| | uv | Docker |
 |---|---|---|
 | Что установить | `uv`, небольшую утилиту | Docker Desktop |
 | Подходит, если | Docker не установлен или не нужен | Docker уже установлен, нужна дополнительная изоляция |
@@ -42,7 +42,9 @@
 
 Ниже `0.2.1` — текущая версия. Номер последней версии можно посмотреть на [PyPI](https://pypi.org/project/sgnl-mcp/).
 
-## Способ 1. Через uvx
+## Способ 1. Через uv
+
+Сервер один раз устанавливается как программа `sgnl-mcp`, а клиент запускает её уже готовой. При старте клиента ничего не скачивается, поэтому запуск быстрый и не зависит от интернета до PyPI.
 
 ### Шаг 1. Установите uv
 
@@ -58,41 +60,49 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Закройте терминал, откройте его снова и узнайте полный путь к `uvx`. Он понадобится в настройках клиента.
+Закройте терминал, откройте его снова и проверьте: `uv --version`.
+
+Если `uv` уже был установлен раньше, обновите его командой `uv self update`. Python отдельно ставить не нужно: если его нет, `uv` скачает его сам.
+
+### Шаг 2. Установите сервер
+
+```bash
+uv tool install sgnl-mcp==0.2.1
+```
+
+Узнайте полный путь к программе. Он понадобится в настройках клиента.
 
 ```powershell
-where.exe uvx      # Windows, обычно C:\Users\<имя>\.local\bin\uvx.exe
+where.exe sgnl-mcp      # Windows, обычно C:\Users\<имя>\.local\bin\sgnl-mcp.exe
 ```
 
 ```bash
-which uvx          # macOS и Linux, обычно /Users/<имя>/.local/bin/uvx
+which sgnl-mcp          # macOS и Linux, обычно /Users/<имя>/.local/bin/sgnl-mcp
 ```
 
-Python отдельно ставить не нужно: если его нет, `uv` скачает его сам.
-
-### Шаг 2. Проверьте ключ
+### Шаг 3. Проверьте ключ
 
 **Windows (PowerShell):**
 
 ```powershell
 $env:SGNL_CLIENT_ID="ваш client_id"
 $env:SGNL_CLIENT_SECRET="ваш client_secret"
-uvx sgnl-mcp@0.2.1
+sgnl-mcp
 ```
 
 **macOS и Linux:**
 
 ```bash
-SGNL_CLIENT_ID="ваш client_id" SGNL_CLIENT_SECRET="ваш client_secret" uvx sgnl-mcp@0.2.1
+SGNL_CLIENT_ID="ваш client_id" SGNL_CLIENT_SECRET="ваш client_secret" sgnl-mcp
 ```
 
-Первый запуск длится 10–20 секунд: скачиваются пакеты. Возможны три результата:
+Возможны три результата:
 
 - **Курсор мигает, сообщений нет.** Всё в порядке: сервер подключился к SIGNAL и ждёт клиента. Остановите его через Ctrl+C.
 - **`started with limited rights`.** Сервер работает, но части операций ключу не хватает прав. В сообщении указано, что передать администратору. Пользоваться можно и так.
 - **`cannot start` или `invalid configuration`.** Ключ неверный или не задан, см. раздел [Если что-то не работает](#если-что-то-не-работает).
 
-### Шаг 3. Подключите к клиенту
+### Шаг 4. Подключите к клиенту
 
 **Claude Desktop.** Откройте файл настроек:
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
@@ -104,8 +114,7 @@ SGNL_CLIENT_ID="ваш client_id" SGNL_CLIENT_SECRET="ваш client_secret" uvx 
 {
   "mcpServers": {
     "sgnl": {
-      "command": "C:\\Users\\Admin\\.local\\bin\\uvx.exe",
-      "args": ["sgnl-mcp@0.2.1"],
+      "command": "C:\\Users\\Admin\\.local\\bin\\sgnl-mcp.exe",
       "env": {
         "SGNL_CLIENT_ID": "ваш client_id",
         "SGNL_CLIENT_SECRET": "ваш client_secret",
@@ -116,20 +125,19 @@ SGNL_CLIENT_ID="ваш client_id" SGNL_CLIENT_SECRET="ваш client_secret" uvx 
 }
 ```
 
-В `command` укажите путь из шага 1. В Windows обратные слеши удваиваются (`\\`), на macOS путь пишется как есть: `/Users/me/.local/bin/uvx`. Затем полностью закройте Claude Desktop (на Windows через значок в трее → Quit) и запустите снова.
+В `command` укажите путь из шага 2. В Windows обратные слеши удваиваются (`\\`), на macOS путь пишется как есть: `/Users/me/.local/bin/sgnl-mcp`. Затем полностью закройте Claude Desktop (на Windows через значок в трее → Quit) и запустите снова.
 
 **Claude Code:**
 
 ```bash
-claude mcp add sgnl -e SGNL_CLIENT_ID=ваш_client_id -e SGNL_CLIENT_SECRET=ваш_client_secret -- uvx sgnl-mcp@0.2.1
+claude mcp add sgnl -e SGNL_CLIENT_ID=ваш_client_id -e SGNL_CLIENT_SECRET=ваш_client_secret -- sgnl-mcp
 ```
 
 **Codex.** Файл `~/.codex/config.toml`, на Windows это `%USERPROFILE%\.codex\config.toml`:
 
 ```toml
 [mcp_servers.sgnl]
-command = "uvx"
-args = ["sgnl-mcp@0.2.1"]
+command = "C:\\Users\\Admin\\.local\\bin\\sgnl-mcp.exe"
 env = { SGNL_CLIENT_ID = "ваш client_id", SGNL_CLIENT_SECRET = "ваш client_secret" }
 startup_timeout_sec = 30
 ```
@@ -174,11 +182,11 @@ docker run -i --rm --init --env-file C:\Users\Admin\sgnl-mcp.env ghcr.io/gritsyu
 docker run -i --rm --init --env-file ~/sgnl-mcp.env ghcr.io/gritsyuk/sgnl-mcp:0.2.1
 ```
 
-Результаты те же, что для uvx: если курсор мигает без сообщений, всё в порядке. Остановите сервер через Ctrl+C.
+Результаты те же, что для uv: если курсор мигает без сообщений, всё в порядке. Остановите сервер через Ctrl+C.
 
 ### Шаг 4. Подключите к клиенту
 
-**Claude Desktop** (где лежит файл настроек, см. [способ 1](#шаг-3-подключите-к-клиенту)):
+**Claude Desktop** (где лежит файл настроек, см. [способ 1](#шаг-4-подключите-к-клиенту)):
 
 ```json
 {
@@ -245,7 +253,7 @@ Claude Desktop запускает сервер дважды: для обычно
 
 ## Профили write и workflow
 
-Для изменений в SIGNAL нужны ещё три настройки. Для uvx они добавляются в `env`, для Docker в env-файл.
+Для изменений в SIGNAL нужны ещё три настройки. Для uv они добавляются в `env`, для Docker в env-файл.
 
 ```
 SGNL_MCP_PROFILE=write
@@ -269,12 +277,10 @@ SGNL_MCP_UPLOAD_ROOT=<папка с файлами, которые ассист�
 
 ## Обновление
 
-Замените номер версии в настройках клиента, например `0.2.1` → `0.3.0`, и перезапустите клиент.
+- **uv:** выполните `uv tool install sgnl-mcp==0.3.0 --force`, указав нужную версию, и перезапустите клиент. Настройки клиента менять не нужно.
+- **Docker:** скачайте образ `docker pull ghcr.io/gritsyuk/sgnl-mcp:0.3.0`, замените номер версии в настройках клиента и перезапустите клиент.
 
-- **uvx:** новая версия скачается сама при первом запуске.
-- **Docker:** сначала скачайте образ: `docker pull ghcr.io/gritsyuk/sgnl-mcp:0.3.0`.
-
-Указывайте конкретную версию, а не `latest`: тогда сервер не обновится без вашего ведома.
+Устанавливайте конкретную версию, а не `latest`: тогда сервер не обновится без вашего ведома.
 
 ## Если что-то не работает
 
@@ -284,11 +290,12 @@ SGNL_MCP_UPLOAD_ROOT=<папка с файлами, которые ассист�
 
 | Сообщение | Что сделать |
 |---|---|
-| `invalid configuration … SGNL_CLIENT_ID is not set` | Ключ не передан. Проверьте блок `env` (uvx) или содержимое env-файла (Docker) |
+| `invalid configuration … SGNL_CLIENT_ID is not set` | Ключ не передан. Проверьте блок `env` (uv) или содержимое env-файла (Docker) |
 | `cannot start … CredentialError` или `invalid client id or client secret` | Неверный ключ. Если администратор нажимал «Обновить ключ доступа», старый `client_secret` больше не работает: запросите новый |
 | `cannot start … no license` или в интеграции нет нужных прав | Перешлите текст ошибки администратору SIGNAL |
 | `started with limited rights` | Сервер работает, но не всё доступно. Перешлите текст из сообщения администратору SIGNAL |
-| `spawn uvx ENOENT` или «не удаётся найти файл» | Клиент не нашёл `uvx`. Укажите в `command` полный путь из шага 1 |
+| `ENOENT` или «не удаётся найти файл» | Клиент не нашёл программу. Укажите в `command` полный путь из шага 2 |
+| `Failed to install … os error 32`, «файл занят другим процессом» | В настройках клиента запускается `uvx sgnl-mcp`, а не установленная программа. Клиент стартует сервер дважды, и две установки мешают друг другу. Установите сервер по шагу 2 и укажите в `command` путь к `sgnl-mcp` |
 | `--env-file: open …: The system cannot find the file specified` | Неверный путь к env-файлу в настройках |
 | `Unable to find image` и долгий первый запуск | Docker скачивает образ, подождите. Чтобы не ждать, заранее выполните `docker pull` |
 | `Cannot connect to the Docker daemon` | Docker Desktop не запущен |
